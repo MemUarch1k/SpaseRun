@@ -46,61 +46,11 @@
 
         // ---- АУДИО ----
         let audioCtx = null;
-        let bgMusicBuffer = null;
-        let bgMusicSource = null;
-        let musicEnabled = true;
 
         function initAudio() {
             if (!audioCtx) {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                createBgMusic();
-                startBgMusic();
             }
-        }
-
-        function createBgMusic() {
-            if (!audioCtx) return;
-            const duration = 6.0;
-            const sampleRate = audioCtx.sampleRate;
-            const frameCount = sampleRate * duration;
-            const buffer = audioCtx.createBuffer(1, frameCount, sampleRate);
-            const data = buffer.getChannelData(0);
-            
-            for (let i = 0; i < frameCount; i++) {
-                let t = i / sampleRate;
-                
-                // Глубокий космический гул (двигатель)
-                let drone = 0;
-                drone += Math.sin(2 * Math.PI * 55 * t) * 0.06;
-                drone += Math.sin(2 * Math.PI * 73 * t * 1.3) * 0.04;
-                drone += Math.sin(2 * Math.PI * 98 * t * 0.7) * 0.035;
-                
-                // Звёздные переливы (высокие, редкие)
-                let stars = 0;
-                stars += Math.sin(2 * Math.PI * 440 * t * 2.1) * 0.015 * Math.sin(t * 0.5);
-                stars += Math.sin(2 * Math.PI * 660 * t * 1.7) * 0.01 * Math.sin(t * 0.3 + 0.5);
-                
-                // Шум (космический ветер)
-                let noise = (Math.random() - 0.5) * 0.015;
-                let noiseEnv = Math.exp(-t * 0.2) * 0.3 + 0.7;
-                noise *= noiseEnv;
-                
-                // Объединяем
-                data[i] = (drone + stars + noise) * 0.8;
-            }
-            bgMusicBuffer = buffer;
-        }
-
-        function startBgMusic() {
-            if (!audioCtx || !bgMusicBuffer || !musicEnabled) return;
-            if (bgMusicSource) {
-                try { bgMusicSource.stop(); } catch(e) {}
-            }
-            bgMusicSource = audioCtx.createBufferSource();
-            bgMusicSource.buffer = bgMusicBuffer;
-            bgMusicSource.loop = true;
-            bgMusicSource.connect(audioCtx.destination);
-            bgMusicSource.start();
         }
 
         function playTone(freq, duration, volume = 0.12, type = 'sine') {
@@ -124,6 +74,7 @@
         function soundShieldBreak() { playTone(200, 0.3, 0.15, 'sawtooth'); playTone(150, 0.2, 0.1, 'square'); }
         function soundGunPickup() { playTone(880, 0.1, 0.1); setTimeout(() => playTone(1100, 0.15, 0.1), 80); }
         function soundGunShot() { playTone(1200, 0.05, 0.07); }
+        function soundLaserDestroy() { playTone(500, 0.15, 0.12, 'sawtooth'); setTimeout(() => playTone(700, 0.1, 0.08), 60); }
         function soundPortal() { playTone(300, 0.2, 0.08); setTimeout(() => playTone(500, 0.2, 0.06), 120); }
         function soundCrash() { playTone(150, 0.3, 0.2, 'sawtooth'); setTimeout(() => playTone(80, 0.4, 0.15, 'square'), 100); }
 
@@ -169,7 +120,7 @@
                 enemy.type = 'red';
                 enemy.r = 18;
                 enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
-                enemy.shootTimer = 20;
+                enemy.shootTimer = 20;   // СТРЕЛЯЕТ СРАЗУ ПОСЛЕ СПАВНА
                 enemy.shootInterval = 120;
             } else if (type < 0.50) {
                 enemy.type = 'blue';
@@ -186,12 +137,13 @@
                 enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
             }
 
+            // Бонусы РЕЖЕ (5%)
             if (Math.random() > 0.95) {
                 const bonusType = Math.random() > 0.5 ? 'shield' : 'guns';
                 enemy.type = bonusType;
                 enemy.r = 14;
                 enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
-                enemy.speed = speed * 0.5;
+                enemy.speed = speed * 0.5; // МЕДЛЕННЕЕ
             }
 
             enemies.push(enemy);
@@ -224,6 +176,7 @@
                 if (Math.random() > 0.97 && portals.length === 0) spawnPortal();
             }
 
+            // Управление
             if (keys.ArrowLeft) player.x -= 6;
             if (keys.ArrowRight) player.x += 6;
             if (keys.ArrowUp) player.y -= 6;
@@ -237,11 +190,13 @@
             player.x = Math.max(0, Math.min(W - player.size, player.x));
             player.y = Math.max(0, Math.min(H - player.size, player.y));
 
+            // Щит
             if (shieldActive) {
                 shieldTimer--;
                 if (shieldTimer <= 0) shieldActive = false;
             }
 
+            // Пушка
             if (gunsActive) {
                 gunsTimer--;
                 if (gunsTimer <= 0) {
@@ -252,6 +207,7 @@
                 }
             }
 
+            // Пули
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
                 b.x += b.dx;
@@ -272,6 +228,7 @@
                 }
             }
 
+            // Враги
             for (let i = enemies.length - 1; i >= 0; i--) {
                 const e = enemies[i];
                 e.y += e.speed || speed;
@@ -308,6 +265,7 @@
 
                 if (e.y > H + 50) { enemies.splice(i, 1); continue; }
 
+                // Столкновение с игроком
                 if (e.type !== 'shield' && e.type !== 'guns') {
                     const dx = player.x + player.size/2 - e.x;
                     const dy = player.y + player.size/2 - e.y;
@@ -326,6 +284,7 @@
                     }
                 }
 
+                // Бонусы
                 if (e.type === 'shield') {
                     const dx = player.x + player.size/2 - e.x;
                     const dy = player.y + player.size/2 - e.y;
@@ -350,6 +309,7 @@
                 }
             }
 
+            // Порталы
             portalCooldown--;
             for (let i = portals.length - 1; i >= 0; i--) {
                 const p = portals[i];
@@ -374,6 +334,7 @@
             }
         }
 
+        // ---- ОТРИСОВКА ----
         function draw() {
             ctx.clearRect(0, 0, W, H);
             for (let s of stars) {
@@ -456,8 +417,7 @@
             ctx.closePath(); ctx.fill();
             ctx.shadowBlur = 0;
             ctx.fillStyle = '#a0d8f1';
-            ctx.beginPath(); ctx.arc(px + s/2, py + s * 0.35, 5, 0, Math.PI*2);
-            ctx.fill();
+            ctx.beginPath(); ctx.arc(px + s/2, py + s * 0.35, 5, 0, Math.PI*2); ctx.fill();
 
             if (gameOver) {
                 ctx.fillStyle = 'rgba(0,0,0,0.55)';
