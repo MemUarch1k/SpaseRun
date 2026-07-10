@@ -10,7 +10,6 @@
             -webkit-tap-highlight-color: transparent;
             box-sizing: border-box;
         }
-
         body {
             margin: 0;
             padding: 0;
@@ -19,27 +18,24 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            font-family: 'Segoe UI', 'Courier New', monospace;
+            font-family: 'Segoe UI', monospace;
             overflow: hidden;
             touch-action: none;
         }
-
         .game-wrapper {
             background: #0f1117;
             border-radius: 48px;
             padding: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
             max-width: 500px;
             width: 100%;
         }
-
         .game-panel {
             background: #07090e;
             border-radius: 32px;
             padding: 20px;
             position: relative;
         }
-
         canvas {
             display: block;
             width: 100%;
@@ -49,7 +45,6 @@
             touch-action: none;
             cursor: pointer;
         }
-
         .ui-top {
             display: flex;
             justify-content: space-between;
@@ -58,17 +53,12 @@
             font-size: 18px;
             font-weight: bold;
         }
-
         .ui-top span {
             background: #0f1117;
             padding: 6px 18px;
             border-radius: 30px;
         }
-
-        .ui-top .best {
-            color: #f39c12;
-        }
-
+        .ui-top .best { color: #f39c12; }
         .controls {
             display: flex;
             gap: 12px;
@@ -76,7 +66,6 @@
             padding-top: 16px;
             flex-wrap: wrap;
         }
-
         button {
             background: #1a1f2a;
             border: none;
@@ -90,18 +79,12 @@
             transition: 0.1s linear;
             box-shadow: 0 3px 0 #0b0e12;
         }
-
-        button:active {
-            transform: translateY(2px);
-            box-shadow: 0 1px 0 #0b0e12;
-        }
-
+        button:active { transform: translateY(2px); box-shadow: 0 1px 0 #0b0e12; }
         .btn-primary {
             background: #2ecc71;
             color: #0a0c12;
             box-shadow: 0 3px 0 #1e8a4c;
         }
-
         @media (max-width: 500px) {
             .game-wrapper { padding: 12px; }
             .game-panel { padding: 12px; }
@@ -110,16 +93,13 @@
     </style>
 </head>
 <body>
-
 <div class="game-wrapper">
     <div class="game-panel">
         <div class="ui-top">
             <span>🚀 <span id="scoreDisplay">0</span></span>
             <span class="best">🏆 <span id="bestDisplay">0</span></span>
         </div>
-
         <canvas id="gameCanvas" width="400" height="600"></canvas>
-
         <div class="controls">
             <button id="restartBtn" class="btn-primary">🔄 НАЧАТЬ</button>
         </div>
@@ -137,66 +117,77 @@
         const PLAYER_SIZE = 28;
 
         let player = { x: W/2 - PLAYER_SIZE/2, y: H - 100, size: PLAYER_SIZE };
-        let asteroids = [];
+        let enemies = [];
+        let bullets = [];
+        let particles = [];
+        let portals = [];
         let stars = [];
-        let score = 0;
-        let bestScore = 0;
-        let gameOver = false;
-        let gameStarted = false;
-        let speed = 3;
-        let spawnTimer = 0;
-
+        let shield = { active: false, timer: 0 };
+        let guns = { active: false, timer: 0 };
+        let score = 0, bestScore = 0, gameOver = false, gameStarted = false;
+        let speed = 3, spawnTimer = 0;
         let keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false };
-        let touchX = null;
-        let touchY = null;
+        let touchX = null, touchY = null;
+        let portalCooldown = 0;
 
         function initStars() {
             stars = [];
             for (let i = 0; i < 70; i++) {
-                stars.push({
-                    x: Math.random() * W,
-                    y: Math.random() * H,
-                    size: Math.random() * 2 + 1,
-                    speed: Math.random() * 0.5 + 0.2
-                });
+                stars.push({ x: Math.random() * W, y: Math.random() * H, size: Math.random() * 2 + 1, speed: Math.random() * 0.5 + 0.2 });
             }
         }
 
         function loadBest() {
-            try {
-                const saved = localStorage.getItem('spaceRunnerBest');
-                if (saved) bestScore = parseInt(saved) || 0;
-            } catch (e) {}
+            try { const saved = localStorage.getItem('spaceRunnerBest'); if (saved) bestScore = parseInt(saved) || 0; } catch (e) {}
             bestDisplay.textContent = bestScore;
         }
 
         function saveBest() {
-            if (score > bestScore) {
-                bestScore = score;
-                localStorage.setItem('spaceRunnerBest', String(bestScore));
-                bestDisplay.textContent = bestScore;
+            if (score > bestScore) { bestScore = score; localStorage.setItem('spaceRunnerBest', String(bestScore)); bestDisplay.textContent = bestScore; }
+        }
+
+        function spawnEnemy() {
+            const type = Math.random();
+            let enemy = { type: 'normal', x: 0, y: -30, r: 20, speed: speed, angle: 0, phase: 0 };
+            if (type < 0.33) {
+                enemy.type = 'red';
+                enemy.r = 18;
+                enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
+                enemy.shootTimer = 0;
+            } else if (type < 0.66) {
+                enemy.type = 'blue';
+                enemy.r = 16;
+                enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
+                enemy.phase = Math.random() * Math.PI * 2;
+            } else {
+                enemy.type = 'purple';
+                enemy.r = 22;
+                enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
             }
+            enemies.push(enemy);
         }
 
-        function spawnAsteroid() {
-            const r = 15 + Math.random() * 22;
-            asteroids.push({
-                x: Math.random() * (W - r * 2) + r,
-                y: -r - 10,
-                r: r
-            });
+        function spawnPortal() {
+            if (portals.length >= 2) return;
+            const x1 = 50 + Math.random() * (W - 100);
+            const x2 = 50 + Math.random() * (W - 100);
+            portals = [
+                { x: x1, y: -30, w: 30, h: 30, id: 1, speed: speed },
+                { x: x2, y: -30 - 80, w: 30, h: 30, id: 2, speed: speed }
+            ];
         }
 
-        function checkCollision(player, asteroid) {
-            const px = player.x, py = player.y, size = player.size;
-            const cx = asteroid.x, cy = asteroid.y, r = asteroid.r;
-
-            const nearX = Math.max(px, Math.min(cx, px + size));
-            const nearY = Math.max(py, Math.min(cy, py + size));
-            const dx = cx - nearX;
-            const dy = cy - nearY;
-
-            return (dx * dx + dy * dy) < (r * r);
+        function spawnBonus() {
+            const type = Math.random();
+            const r = 14;
+            const x = Math.random() * (W - r * 2) + r;
+            if (type < 0.33) {
+                enemies.push({ type: 'shield', x, y: -20, r, speed: speed });
+            } else if (type < 0.66) {
+                enemies.push({ type: 'guns', x, y: -20, r, speed: speed });
+            } else {
+                // телепорты спавнятся отдельно
+            }
         }
 
         function update() {
@@ -207,85 +198,246 @@
             scoreDisplay.textContent = score;
 
             spawnTimer++;
-            if (spawnTimer > Math.max(30, 85 - speed * 1.5)) {
+            const spawnRate = Math.max(25, 85 - speed * 1.5);
+            if (spawnTimer > spawnRate) {
                 spawnTimer = 0;
-                spawnAsteroid();
+                if (Math.random() > 0.6) spawnEnemy();
+                if (Math.random() > 0.85) spawnBonus();
+                if (Math.random() > 0.95 && portals.length === 0) spawnPortal();
             }
 
+            // управление
             if (keys.ArrowLeft) player.x -= 5.5;
             if (keys.ArrowRight) player.x += 5.5;
             if (keys.ArrowUp) player.y -= 5.5;
             if (keys.ArrowDown) player.y += 5.5;
-
             if (touchX !== null) {
                 const dx = touchX - (player.x + player.size / 2);
                 const dy = touchY - (player.y + player.size / 2);
                 if (Math.abs(dx) > 8) player.x += Math.sign(dx) * 5.5;
                 if (Math.abs(dy) > 8) player.y += Math.sign(dy) * 5.5;
             }
-
             player.x = Math.max(0, Math.min(W - player.size, player.x));
             player.y = Math.max(0, Math.min(H - player.size, player.y));
 
-            for (let i = asteroids.length - 1; i >= 0; i--) {
-                const a = asteroids[i];
-                a.y += speed;
-
-                if (a.y > H + 50) {
-                    asteroids.splice(i, 1);
-                    continue;
-                }
-
-                if (checkCollision(player, a)) {
-                    gameOver = true;
-                    saveBest();
-                    return;
+            // щит
+            if (shield.active) {
+                shield.timer--;
+                if (shield.timer <= 0) shield.active = false;
+            }
+            // пушки
+            if (guns.active) {
+                guns.timer--;
+                if (guns.timer <= 0) guns.active = false;
+                else {
+                    // выстрел
+                    bullets.push({ x: player.x + player.size/2, y: player.y - 5, dx: 0, dy: -10, w: 4, h: 12, color: '#ffaa00' });
                 }
             }
 
+            // пули
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
+                b.x += b.dx;
+                b.y += b.dy;
+                if (b.y < -20) { bullets.splice(i, 1); continue; }
+                // проверка попадания по врагам
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const e = enemies[j];
+                    if (e.type === 'shield' || e.type === 'guns') continue;
+                    const dx = b.x - e.x;
+                    const dy = b.y - e.y;
+                    if (dx*dx + dy*dy < e.r * e.r) {
+                        // враг уничтожен
+                        enemies.splice(j, 1);
+                        bullets.splice(i, 1);
+                        score += 50;
+                        break;
+                    }
+                }
+            }
+
+            // враги + порталы
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                e.y += e.speed || speed;
+
+                if (e.type === 'red') {
+                    e.shootTimer = (e.shootTimer || 0) + 1;
+                    if (e.shootTimer > 30) {
+                        e.shootTimer = 0;
+                        enemies.push({ type: 'mini', x: e.x - 10, y: e.y, r: 6, speed: speed * 0.8, dx: -2, dy: 0 });
+                        enemies.push({ type: 'mini', x: e.x + 10, y: e.y, r: 6, speed: speed * 0.8, dx: 2, dy: 0 });
+                    }
+                }
+
+                if (e.type === 'blue') {
+                    e.phase += 0.06;
+                    e.x += Math.sin(e.phase) * 1.8;
+                }
+
+                if (e.type === 'purple') {
+                    const dx = player.x + player.size/2 - e.x;
+                    const dy = player.y + player.size/2 - e.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < 150) {
+                        e.x += dx * 0.02;
+                        e.y += dy * 0.02;
+                    }
+                }
+
+                if (e.type === 'mini') {
+                    e.x += e.dx || 0;
+                    if (e.x < 0 || e.x > W) e.dx = -e.dx;
+                }
+
+                if (e.y > H + 50) { enemies.splice(i, 1); continue; }
+
+                // столкновение с игроком
+                if (e.type !== 'shield' && e.type !== 'guns') {
+                    const dx = player.x + player.size/2 - e.x;
+                    const dy = player.y + player.size/2 - e.y;
+                    if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
+                        if (shield.active) {
+                            shield.active = false;
+                            // эффект щита
+                        } else {
+                            gameOver = true; saveBest(); return;
+                        }
+                    }
+                }
+
+                // бонусы
+                if (e.type === 'shield') {
+                    const dx = player.x + player.size/2 - e.x;
+                    const dy = player.y + player.size/2 - e.y;
+                    if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
+                        shield.active = true;
+                        shield.timer = 600; // 10 сек
+                        enemies.splice(i, 1);
+                        continue;
+                    }
+                }
+                if (e.type === 'guns') {
+                    const dx = player.x + player.size/2 - e.x;
+                    const dy = player.y + player.size/2 - e.y;
+                    if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
+                        guns.active = true;
+                        guns.timer = 420; // 7 сек
+                        enemies.splice(i, 1);
+                        continue;
+                    }
+                }
+            }
+
+            // порталы
+            portalCooldown--;
+            for (let i = portals.length - 1; i >= 0; i--) {
+                const p = portals[i];
+                p.y += p.speed;
+                if (p.y > H + 50) { portals.splice(i, 1); continue; }
+                // проверка входа в портал
+                const dx = player.x + player.size/2 - (p.x + p.w/2);
+                const dy = player.y + player.size/2 - (p.y + p.h/2);
+                if (dx*dx + dy*dy < 400 && portalCooldown <= 0) {
+                    // телепорт
+                    const other = portals.find(pp => pp.id !== p.id);
+                    if (other) {
+                        player.x = other.x + other.w/2 - player.size/2;
+                        player.y = other.y + other.h/2 - player.size/2;
+                        portalCooldown = 30;
+                    }
+                }
+            }
+
+            // звёзды
             for (let s of stars) {
                 s.y += s.speed;
-                if (s.y > H) {
-                    s.y = 0;
-                    s.x = Math.random() * W;
-                }
+                if (s.y > H) { s.y = 0; s.x = Math.random() * W; }
             }
         }
 
         function draw() {
             ctx.clearRect(0, 0, W, H);
-
             for (let s of stars) {
-                ctx.beginPath();
-                ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(255,255,255,${0.3 + s.size * 0.15})`;
+                ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI*2);
+                ctx.fillStyle = `rgba(255,255,255,${0.3 + s.size*0.15})`;
                 ctx.fill();
             }
 
-            for (let a of asteroids) {
-                ctx.beginPath();
-                ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2);
-                const grad = ctx.createRadialGradient(a.x - 4, a.y - 4, 2, a.x, a.y, a.r);
-                grad.addColorStop(0, '#a0a0a0');
-                grad.addColorStop(1, '#2a2a2a');
-                ctx.fillStyle = grad;
-                ctx.fill();
-                ctx.strokeStyle = '#5a5a5a';
+            for (let e of enemies) {
+                if (e.type === 'shield') {
+                    ctx.fillStyle = '#00ff88'; ctx.shadowBlur = 20; ctx.shadowColor = '#00ff88';
+                    ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#fff'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
+                    ctx.fillText('🛡️', e.x, e.y+4);
+                    continue;
+                }
+                if (e.type === 'guns') {
+                    ctx.fillStyle = '#ff8800'; ctx.shadowBlur = 20; ctx.shadowColor = '#ff8800';
+                    ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#fff'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
+                    ctx.fillText('🔫', e.x, e.y+4);
+                    continue;
+                }
+                ctx.shadowBlur = 10;
+                let color = '#888';
+                if (e.type === 'red') color = '#ff4444';
+                else if (e.type === 'blue') color = '#4488ff';
+                else if (e.type === 'purple') color = '#aa44ff';
+                else if (e.type === 'mini') color = '#ff8844';
+                ctx.shadowColor = color;
+                ctx.fillStyle = color;
+                ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
+                ctx.shadowBlur = 0;
+                // блик
+                ctx.fillStyle = 'rgba(255,255,255,0.2)';
+                ctx.beginPath(); ctx.arc(e.x-3, e.y-4, e.r*0.3, 0, Math.PI*2); ctx.fill();
+            }
+
+            // порталы
+            for (let p of portals) {
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#00ccff';
+                ctx.fillStyle = '#004466';
+                ctx.fillRect(p.x, p.y, p.w, p.h);
+                ctx.strokeStyle = '#00ccff';
                 ctx.lineWidth = 2;
-                ctx.stroke();
-
-                // маленький блик
-                ctx.beginPath();
-                ctx.arc(a.x - 4, a.y - 5, 3, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(255,255,255,0.3)';
-                ctx.fill();
+                ctx.strokeRect(p.x, p.y, p.w, p.h);
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#00ccff';
+                ctx.font = '18px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('🌀', p.x + p.w/2, p.y + p.h - 6);
+                ctx.fillStyle = 'rgba(0,200,255,0.2)';
+                ctx.fillRect(p.x + 5, p.y + 5, p.w - 10, p.h - 10);
             }
 
-            const px = player.x, py = player.y, s = player.size;
+            // пули
+            for (let b of bullets) {
+                ctx.fillStyle = b.color || '#ffaa00';
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = b.color || '#ffaa00';
+                ctx.fillRect(b.x, b.y, b.w, b.h);
+                ctx.shadowBlur = 0;
+            }
 
+            // игрок
+            const px = player.x, py = player.y, s = player.size;
+            if (shield.active) {
+                ctx.shadowBlur = 30;
+                ctx.shadowColor = '#00ff88';
+                ctx.strokeStyle = 'rgba(0,255,136,0.4)';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(px + s/2, py + s/2, s/2 + 6, 0, Math.PI*2);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
             ctx.shadowBlur = 20;
             ctx.shadowColor = '#2ecc71';
-
             ctx.fillStyle = '#2ecc71';
             ctx.beginPath();
             ctx.moveTo(px + s/2, py);
@@ -293,7 +445,6 @@
             ctx.lineTo(px, py + s);
             ctx.closePath();
             ctx.fill();
-
             ctx.fillStyle = '#27ae60';
             ctx.beginPath();
             ctx.moveTo(px, py + 4);
@@ -301,19 +452,16 @@
             ctx.lineTo(px, py + 14);
             ctx.closePath();
             ctx.fill();
-
             ctx.beginPath();
             ctx.moveTo(px + s, py + 4);
             ctx.lineTo(px + s + 6, py + 14);
             ctx.lineTo(px + s, py + 14);
             ctx.closePath();
             ctx.fill();
-
             ctx.shadowBlur = 0;
-
             ctx.fillStyle = '#a0d8f1';
             ctx.beginPath();
-            ctx.arc(px + s/2, py + s * 0.35, 5, 0, Math.PI * 2);
+            ctx.arc(px + s/2, py + s * 0.35, 5, 0, Math.PI*2);
             ctx.fill();
 
             if (gameOver) {
@@ -330,7 +478,6 @@
                 ctx.font = '16px monospace';
                 ctx.fillText('Нажми «НАЧАТЬ»', W/2, H/2 + 70);
             }
-
             if (!gameStarted && !gameOver) {
                 ctx.fillStyle = 'rgba(0,0,0,0.4)';
                 ctx.fillRect(0, 0, W, H);
@@ -353,12 +500,17 @@
         function resetGame() {
             player.x = W/2 - PLAYER_SIZE/2;
             player.y = H - 100;
-            asteroids = [];
+            enemies = [];
+            bullets = [];
+            portals = [];
             score = 0;
             speed = 3;
             spawnTimer = 0;
             gameOver = false;
             gameStarted = true;
+            shield.active = false;
+            guns.active = false;
+            portalCooldown = 0;
             scoreDisplay.textContent = '0';
             loadBest();
             initStars();
@@ -367,16 +519,11 @@
         function setupControls() {
             document.addEventListener('keydown', (e) => {
                 if (e.key in keys) { keys[e.key] = true; e.preventDefault(); }
-                if (e.key === ' ' || e.key === 'Space') {
-                    e.preventDefault();
-                    if (gameOver || !gameStarted) resetGame();
-                }
+                if (e.key === ' ' || e.key === 'Space') { e.preventDefault(); if (gameOver || !gameStarted) resetGame(); }
             });
-
             document.addEventListener('keyup', (e) => {
                 if (e.key in keys) { keys[e.key] = false; e.preventDefault(); }
             });
-
             canvas.addEventListener('touchstart', (e) => {
                 e.preventDefault();
                 if (gameOver || !gameStarted) { resetGame(); return; }
@@ -387,7 +534,6 @@
                 touchX = (touch.clientX - rect.left) * scaleX;
                 touchY = (touch.clientY - rect.top) * scaleY;
             });
-
             canvas.addEventListener('touchmove', (e) => {
                 e.preventDefault();
                 const rect = canvas.getBoundingClientRect();
@@ -397,13 +543,11 @@
                 touchX = (touch.clientX - rect.left) * scaleX;
                 touchY = (touch.clientY - rect.top) * scaleY;
             });
-
             canvas.addEventListener('touchend', (e) => {
                 e.preventDefault();
                 touchX = null;
                 touchY = null;
             });
-
             document.getElementById('restartBtn').addEventListener('click', resetGame);
         }
 
@@ -413,7 +557,6 @@
             setupControls();
             gameLoop();
         }
-
         start();
     })();
 </script>
