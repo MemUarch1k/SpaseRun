@@ -46,11 +46,46 @@
 
         // ---- АУДИО ----
         let audioCtx = null;
+        let bgMusicBuffer = null;
+        let bgMusicSource = null;
+        let musicEnabled = true;
 
         function initAudio() {
             if (!audioCtx) {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                createBgMusic();
+                startBgMusic();
             }
+        }
+
+        function createBgMusic() {
+            if (!audioCtx) return;
+            const duration = 4.0;
+            const sampleRate = audioCtx.sampleRate;
+            const frameCount = sampleRate * duration;
+            const buffer = audioCtx.createBuffer(1, frameCount, sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < frameCount; i++) {
+                let t = i / sampleRate;
+                let note1 = Math.sin(2 * Math.PI * 261.63 * t) * 0.06;
+                let note2 = Math.sin(2 * Math.PI * 329.63 * t * 1.5) * 0.04;
+                let note3 = Math.sin(2 * Math.PI * 392.00 * t * 2) * 0.03;
+                let pad = Math.sin(2 * Math.PI * 130.81 * t) * 0.05;
+                data[i] = (note1 + note2 + note3 + pad) * Math.exp(-t * 0.04);
+            }
+            bgMusicBuffer = buffer;
+        }
+
+        function startBgMusic() {
+            if (!audioCtx || !bgMusicBuffer || !musicEnabled) return;
+            if (bgMusicSource) {
+                try { bgMusicSource.stop(); } catch(e) {}
+            }
+            bgMusicSource = audioCtx.createBufferSource();
+            bgMusicSource.buffer = bgMusicBuffer;
+            bgMusicSource.loop = true;
+            bgMusicSource.connect(audioCtx.destination);
+            bgMusicSource.start();
         }
 
         function playTone(freq, duration, volume = 0.12, type = 'sine') {
@@ -74,7 +109,6 @@
         function soundShieldBreak() { playTone(200, 0.3, 0.15, 'sawtooth'); playTone(150, 0.2, 0.1, 'square'); }
         function soundGunPickup() { playTone(880, 0.1, 0.1); setTimeout(() => playTone(1100, 0.15, 0.1), 80); }
         function soundGunShot() { playTone(1200, 0.05, 0.07); }
-        function soundLaserDestroy() { playTone(500, 0.15, 0.12, 'sawtooth'); setTimeout(() => playTone(700, 0.1, 0.08), 60); }
         function soundPortal() { playTone(300, 0.2, 0.08); setTimeout(() => playTone(500, 0.2, 0.06), 120); }
         function soundCrash() { playTone(150, 0.3, 0.2, 'sawtooth'); setTimeout(() => playTone(80, 0.4, 0.15, 'square'), 100); }
 
@@ -120,8 +154,10 @@
                 enemy.type = 'red';
                 enemy.r = 18;
                 enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
-                enemy.shootTimer = 20;   // СТРЕЛЯЕТ СРАЗУ ПОСЛЕ СПАВНА
+                enemy.shootTimer = 0;   // НАЧИНАЕТ СТРЕЛЯТЬ СРАЗУ
                 enemy.shootInterval = 120;
+                // ПЕРВЫЙ ВЫСТРЕЛ ЧЕРЕЗ 20 КАДРОВ
+                enemy.shootTimer = 20;
             } else if (type < 0.50) {
                 enemy.type = 'blue';
                 enemy.r = 16;
@@ -143,7 +179,7 @@
                 enemy.type = bonusType;
                 enemy.r = 14;
                 enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
-                enemy.speed = speed * 0.5; // МЕДЛЕННЕЕ
+                enemy.speed = speed * 0.5;
             }
 
             enemies.push(enemy);
@@ -417,7 +453,8 @@
             ctx.closePath(); ctx.fill();
             ctx.shadowBlur = 0;
             ctx.fillStyle = '#a0d8f1';
-            ctx.beginPath(); ctx.arc(px + s/2, py + s * 0.35, 5, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(px + s/2, py + s * 0.35, 5, 0, Math.PI*2);
+            ctx.fill();
 
             if (gameOver) {
                 ctx.fillStyle = 'rgba(0,0,0,0.55)';
