@@ -121,8 +121,10 @@
         let bullets = [];
         let portals = [];
         let stars = [];
-        let shield = { active: false, timer: 0 };
-        let guns = { active: false, timer: 0 };
+        let shieldActive = false;
+        let shieldTimer = 0;
+        let gunsActive = false;
+        let gunsTimer = 0;
         let score = 0, bestScore = 0, gameOver = false, gameStarted = false;
         let speed = 3, spawnTimer = 0;
         let keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false };
@@ -153,7 +155,7 @@
                 enemy.r = 18;
                 enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
                 enemy.shootTimer = 0;
-                enemy.shootInterval = 120;
+                enemy.shootInterval = 90; // 1.5 сек
             } else if (type < 0.60) {
                 enemy.type = 'blue';
                 enemy.r = 16;
@@ -164,7 +166,6 @@
                 enemy.r = 22;
                 enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
             } else {
-                // бонус
                 const bonusType = Math.random() > 0.5 ? 'shield' : 'guns';
                 enemy.type = bonusType;
                 enemy.r = 14;
@@ -195,11 +196,11 @@
             if (spawnTimer > spawnRate) {
                 spawnTimer = 0;
                 spawnEnemy();
-                if (Math.random() > 0.7) spawnEnemy(); // иногда два за раз
+                if (Math.random() > 0.7) spawnEnemy();
                 if (Math.random() > 0.95 && portals.length === 0) spawnPortal();
             }
 
-            // управление
+            // Управление
             if (keys.ArrowLeft) player.x -= 6;
             if (keys.ArrowRight) player.x += 6;
             if (keys.ArrowUp) player.y -= 6;
@@ -213,26 +214,23 @@
             player.x = Math.max(0, Math.min(W - player.size, player.x));
             player.y = Math.max(0, Math.min(H - player.size, player.y));
 
-            // щит
-            if (shield.active) {
-                shield.timer--;
-                if (shield.timer <= 0) shield.active = false;
+            // Щит
+            if (shieldActive) {
+                shieldTimer--;
+                if (shieldTimer <= 0) shieldActive = false;
             }
 
-            // пушки — стреляют 3 лучами за раз
-            if (guns.active) {
-                guns.timer--;
-                if (guns.timer <= 0) {
-                    guns.active = false;
-                } else {
-                    // 3 луча веером
-                    bullets.push({ x: player.x + player.size/2 - 8, y: player.y - 5, dx: -2, dy: -10, w: 4, h: 12, color: '#ffaa00' });
-                    bullets.push({ x: player.x + player.size/2, y: player.y - 5, dx: 0, dy: -11, w: 4, h: 14, color: '#ffcc44' });
-                    bullets.push({ x: player.x + player.size/2 + 8, y: player.y - 5, dx: 2, dy: -10, w: 4, h: 12, color: '#ffaa00' });
+            // Пушка — 1 луч каждые 30 кадров (0.5 сек)
+            if (gunsActive) {
+                gunsTimer--;
+                if (gunsTimer <= 0) {
+                    gunsActive = false;
+                } else if (gunsTimer % 30 === 0) {
+                    bullets.push({ x: player.x + player.size/2 - 2, y: player.y - 5, dx: 0, dy: -12, w: 4, h: 14, color: '#ffaa00' });
                 }
             }
 
-            // пули
+            // Пули
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
                 b.x += b.dx;
@@ -252,7 +250,7 @@
                 }
             }
 
-            // враги
+            // Враги
             for (let i = enemies.length - 1; i >= 0; i--) {
                 const e = enemies[i];
                 e.y += e.speed || speed;
@@ -289,26 +287,40 @@
 
                 if (e.y > H + 50) { enemies.splice(i, 1); continue; }
 
-                // столкновение с игроком
+                // Столкновение с игроком
                 if (e.type !== 'shield' && e.type !== 'guns') {
                     const dx = player.x + player.size/2 - e.x;
                     const dy = player.y + player.size/2 - e.y;
                     if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
-                        if (shield.active) {
-                            shield.active = false;
+                        if (shieldActive) {
+                            // Щит защищает, даём 1 сек неуязвимости
+                            shieldActive = false;
+                            // Неуязвимость 1 сек (60 кадров)
+                            let invincibleTimer = 60;
+                            const invincibleInterval = setInterval(() => {
+                                invincibleTimer--;
+                                if (invincibleTimer <= 0) {
+                                    clearInterval(invincibleInterval);
+                                }
+                            }, 16);
+                            // Удаляем врага, который ударил
+                            enemies.splice(i, 1);
+                            continue;
                         } else {
-                            gameOver = true; saveBest(); return;
+                            gameOver = true;
+                            saveBest();
+                            return;
                         }
                     }
                 }
 
-                // бонусы
+                // Бонусы
                 if (e.type === 'shield') {
                     const dx = player.x + player.size/2 - e.x;
                     const dy = player.y + player.size/2 - e.y;
                     if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
-                        shield.active = true;
-                        shield.timer = 600;
+                        shieldActive = true;
+                        shieldTimer = 600;
                         enemies.splice(i, 1);
                         continue;
                     }
@@ -317,15 +329,15 @@
                     const dx = player.x + player.size/2 - e.x;
                     const dy = player.y + player.size/2 - e.y;
                     if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
-                        guns.active = true;
-                        guns.timer = 420;
+                        gunsActive = true;
+                        gunsTimer = 420;
                         enemies.splice(i, 1);
                         continue;
                     }
                 }
             }
 
-            // порталы
+            // Порталы
             portalCooldown--;
             for (let i = portals.length - 1; i >= 0; i--) {
                 const p = portals[i];
@@ -414,7 +426,7 @@
             }
 
             const px = player.x, py = player.y, s = player.size;
-            if (shield.active) {
+            if (shieldActive) {
                 ctx.shadowBlur = 30;
                 ctx.shadowColor = '#00ff88';
                 ctx.strokeStyle = 'rgba(0,255,136,0.4)';
@@ -496,8 +508,10 @@
             spawnTimer = 0;
             gameOver = false;
             gameStarted = true;
-            shield.active = false;
-            guns.active = false;
+            shieldActive = false;
+            shieldTimer = 0;
+            gunsActive = false;
+            gunsTimer = 0;
             portalCooldown = 0;
             scoreDisplay.textContent = '0';
             loadBest();
