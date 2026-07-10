@@ -44,6 +44,40 @@
         const W = 400, H = 600;
         const PLAYER_SIZE = 28;
 
+        // ---- АУДИО ----
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playTone(freq, duration, volume = 0.12, type = 'sine') {
+            try {
+                if (!audioCtx) return;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch(e) {}
+        }
+
+        function soundDestroy() { playTone(600, 0.1, 0.1, 'sawtooth'); }
+        function soundShieldPickup() { playTone(440, 0.2, 0.15); setTimeout(() => playTone(660, 0.15, 0.1), 100); }
+        function soundShieldBreak() { playTone(200, 0.3, 0.15, 'sawtooth'); playTone(150, 0.2, 0.1, 'square'); }
+        function soundGunPickup() { playTone(880, 0.1, 0.1); setTimeout(() => playTone(1100, 0.15, 0.1), 80); }
+        function soundGunShot() { playTone(1200, 0.05, 0.07); }
+        function soundLaserDestroy() { playTone(500, 0.15, 0.12, 'sawtooth'); setTimeout(() => playTone(700, 0.1, 0.08), 60); }
+        function soundPortal() { playTone(300, 0.2, 0.08); setTimeout(() => playTone(500, 0.2, 0.06), 120); }
+
+        // ---- ИГРОВЫЕ ПАРАМЕТРЫ ----
         let player = { x: W/2 - PLAYER_SIZE/2, y: H - 100, size: PLAYER_SIZE };
         let enemies = [];
         let bullets = [];
@@ -59,6 +93,7 @@
         let touchX = null, touchY = null;
         let portalCooldown = 0;
 
+        // ---- ИНИЦИАЛИЗАЦИЯ ----
         function initStars() {
             stars = [];
             for (let i = 0; i < 80; i++) {
@@ -75,6 +110,7 @@
             if (score > bestScore) { bestScore = score; localStorage.setItem('spaceRunnerBest', String(bestScore)); bestDisplay.textContent = bestScore; }
         }
 
+        // ---- СПАВН ----
         function spawnEnemy() {
             const type = Math.random();
             let enemy = { type: 'normal', x: 0, y: -30, r: 20, speed: speed, phase: 0 };
@@ -84,7 +120,7 @@
                 enemy.r = 18;
                 enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
                 enemy.shootTimer = 0;
-                enemy.shootInterval = 48;
+                enemy.shootInterval = 120; // 2 секунды
             } else if (type < 0.50) {
                 enemy.type = 'blue';
                 enemy.r = 16;
@@ -121,6 +157,7 @@
             ];
         }
 
+        // ---- ОБНОВЛЕНИЕ ----
         function update() {
             if (!gameStarted || gameOver) return;
 
@@ -129,12 +166,11 @@
             scoreDisplay.textContent = score;
 
             spawnTimer++;
-            // РЕЖЕ (интервал увеличен)
             const spawnRate = Math.max(22, 65 - speed * 1.0);
             if (spawnTimer > spawnRate) {
                 spawnTimer = 0;
                 spawnEnemy();
-                if (Math.random() > 0.8) spawnEnemy(); // реже двойной спавн
+                if (Math.random() > 0.8) spawnEnemy();
                 if (Math.random() > 0.97 && portals.length === 0) spawnPortal();
             }
 
@@ -165,6 +201,7 @@
                     gunsActive = false;
                 } else if (gunsTimer % 30 === 0) {
                     bullets.push({ x: player.x + player.size/2 - 2, y: player.y - 5, dx: 0, dy: -12, w: 4, h: 14, color: '#ffaa00' });
+                    soundGunShot();
                 }
             }
 
@@ -180,6 +217,7 @@
                     const dx = b.x - e.x;
                     const dy = b.y - e.y;
                     if (dx*dx + dy*dy < e.r * e.r) {
+                        soundDestroy();
                         enemies.splice(j, 1);
                         bullets.splice(i, 1);
                         score += 50;
@@ -197,9 +235,9 @@
                     e.shootTimer = (e.shootTimer || 0) + 1;
                     if (e.shootTimer > e.shootInterval) {
                         e.shootTimer = 0;
-                        enemies.push({ type: 'mini', x: e.x - 10, y: e.y, r: 6, speed: speed * 0.7, dx: -1.5, dy: 1.5 });
-                        enemies.push({ type: 'mini', x: e.x, y: e.y, r: 6, speed: speed * 0.7, dx: 0, dy: 2 });
-                        enemies.push({ type: 'mini', x: e.x + 10, y: e.y, r: 6, speed: speed * 0.7, dx: 1.5, dy: 1.5 });
+                        // Только влево и вправо (2 шарика)
+                        enemies.push({ type: 'mini', x: e.x - 14, y: e.y, r: 6, speed: speed * 0.5, dx: -2, dy: 0.5 });
+                        enemies.push({ type: 'mini', x: e.x + 14, y: e.y, r: 6, speed: speed * 0.5, dx: 2, dy: 0.5 });
                     }
                 }
 
@@ -218,13 +256,10 @@
                     }
                 }
 
-                if (e.type === 'gray') {
-                    // просто летит
-                }
-
                 if (e.type === 'mini') {
                     e.x += e.dx || 0;
-                    e.y += e.speed || speed * 0.7;
+                    e.y += e.speed || speed * 0.5;
+                    // убираем отскоки
                     if (e.x < 0 || e.x > W) e.dx = -e.dx;
                 }
 
@@ -236,6 +271,7 @@
                     const dy = player.y + player.size/2 - e.y;
                     if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
                         if (shieldActive) {
+                            soundShieldBreak();
                             shieldActive = false;
                             enemies.splice(i, 1);
                             continue;
@@ -252,6 +288,7 @@
                     const dx = player.x + player.size/2 - e.x;
                     const dy = player.y + player.size/2 - e.y;
                     if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
+                        soundShieldPickup();
                         shieldActive = true;
                         shieldTimer = 600;
                         enemies.splice(i, 1);
@@ -262,6 +299,7 @@
                     const dx = player.x + player.size/2 - e.x;
                     const dy = player.y + player.size/2 - e.y;
                     if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
+                        soundGunPickup();
                         gunsActive = true;
                         gunsTimer = 420;
                         enemies.splice(i, 1);
@@ -281,6 +319,7 @@
                 if (dx*dx + dy*dy < 400 && portalCooldown <= 0) {
                     const other = portals.find(pp => pp.id !== p.id);
                     if (other) {
+                        soundPortal();
                         player.x = other.x + other.w/2 - player.size/2;
                         player.y = other.y + other.h/2 - player.size/2;
                         portalCooldown = 30;
@@ -294,6 +333,7 @@
             }
         }
 
+        // ---- ОТРИСОВКА ----
         function draw() {
             ctx.clearRect(0, 0, W, H);
             for (let s of stars) {
@@ -412,6 +452,7 @@
         }
 
         function resetGame() {
+            initAudio();
             player.x = W/2 - PLAYER_SIZE/2;
             player.y = H - 100;
             enemies = [];
