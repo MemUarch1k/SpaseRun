@@ -127,13 +127,6 @@
 </div>
 
 <script>
-    // ================================================================
-    //  SPACE RUNNER — КОСМИЧЕСКИЙ РАННЕР
-    //  Управление: стрелки / свайпы / касания
-    //  Препятствия: астероиды и стены
-    //  Рекорды, плавная графика, частицы
-    // ================================================================
-
     (function() {
         'use strict';
 
@@ -142,14 +135,11 @@
         const scoreDisplay = document.getElementById('scoreDisplay');
         const bestDisplay = document.getElementById('bestDisplay');
 
-        let W = 400, H = 600;
+        const W = 400, H = 600;
+        const PLAYER_WIDTH = 28;
+        const PLAYER_HEIGHT = 32;
 
-        // ---- ИГРОВЫЕ ПАРАМЕТРЫ ----
-        const PLAYER_WIDTH = 30;
-        const PLAYER_HEIGHT = 30;
-        const PLAYER_SPEED = 6;
-
-        let player = { x: W / 2 - PLAYER_WIDTH / 2, y: H - 80, w: PLAYER_WIDTH, h: PLAYER_HEIGHT };
+        let player = { x: W/2 - PLAYER_WIDTH/2, y: H - 90, w: PLAYER_WIDTH, h: PLAYER_HEIGHT };
         let obstacles = [];
         let stars = [];
         let score = 0;
@@ -157,13 +147,12 @@
         let gameOver = false;
         let gameStarted = false;
         let speed = 3;
-        let frame = 0;
         let spawnTimer = 0;
+        let frame = 0;
 
         let keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false };
         let touchX = null;
 
-        // ---- ЗВЁЗДЫ ----
         function initStars() {
             stars = [];
             for (let i = 0; i < 80; i++) {
@@ -176,7 +165,6 @@
             }
         }
 
-        // ---- РЕКОРД ----
         function loadBest() {
             try {
                 const saved = localStorage.getItem('spaceRunnerBest');
@@ -193,7 +181,6 @@
             }
         }
 
-        // ---- СОЗДАНИЕ ПРЕПЯТСТВИЙ ----
         function spawnObstacle() {
             const type = Math.random() > 0.5 ? 'asteroid' : 'wall';
             if (type === 'asteroid') {
@@ -201,105 +188,28 @@
                 obstacles.push({
                     type: 'asteroid',
                     x: Math.random() * (W - r * 2) + r,
-                    y: -r,
-                    r: r,
-                    speed: speed
+                    y: -r - 20,
+                    r: r
                 });
             } else {
                 const w = 30 + Math.random() * 60;
                 const gap = 50 + Math.random() * 50;
-                const y = -30;
                 obstacles.push({
                     type: 'wall',
                     x1: 0,
                     x2: W - w,
                     gap: gap,
                     w: w,
-                    y: y,
-                    speed: speed
+                    y: -20
                 });
             }
         }
 
-        // ---- ОБНОВЛЕНИЕ ----
-        function update() {
-            if (!gameStarted || gameOver) return;
-
-            // Скорость растёт
-            speed += 0.001;
-            score += Math.floor(speed);
-            scoreDisplay.textContent = score;
-
-            // Спавн препятствий
-            spawnTimer++;
-            const spawnRate = Math.max(15, 60 - speed * 2);
-            if (spawnTimer > spawnRate) {
-                spawnTimer = 0;
-                spawnObstacle();
-            }
-
-            // Движение игрока
-            if (keys.ArrowLeft) player.x -= PLAYER_SPEED;
-            if (keys.ArrowRight) player.x += PLAYER_SPEED;
-            if (keys.ArrowUp) player.y -= PLAYER_SPEED;
-            if (keys.ArrowDown) player.y += PLAYER_SPEED;
-
-            // Касание (телефон)
-            if (touchX !== null) {
-                const dx = touchX - (player.x + player.w / 2);
-                if (Math.abs(dx) > 10) {
-                    player.x += Math.sign(dx) * PLAYER_SPEED;
-                }
-            }
-
-            // Границы
-            player.x = Math.max(0, Math.min(W - player.w, player.x));
-            player.y = Math.max(0, Math.min(H - player.h, player.y));
-
-            // Движение препятствий
-            for (let i = obstacles.length - 1; i >= 0; i--) {
-                const o = obstacles[i];
-                o.y += speed;
-                if (o.type === 'wall') {
-                    o.y += speed;
-                }
-
-                // Удаляем ушедшие
-                if (o.y > H + 50) {
-                    obstacles.splice(i, 1);
-                    continue;
-                }
-
-                // Столкновение
-                if (checkCollision(player, o)) {
-                    gameOver = true;
-                    saveBest();
-                    return;
-                }
-            }
-
-            // Звёзды
-            for (let s of stars) {
-                s.y += s.speed;
-                if (s.y > H) {
-                    s.y = 0;
-                    s.x = Math.random() * W;
-                }
-            }
-        }
-
-        // ---- ПРОВЕРКА СТОЛКНОВЕНИЙ ----
         function checkCollision(player, obstacle) {
-            const px = player.x;
-            const py = player.y;
-            const pw = player.w;
-            const ph = player.h;
+            const px = player.x, py = player.y, pw = player.w, ph = player.h;
 
             if (obstacle.type === 'asteroid') {
-                const cx = obstacle.x;
-                const cy = obstacle.y;
-                const r = obstacle.r;
-
+                const cx = obstacle.x, cy = obstacle.y, r = obstacle.r;
                 const nearX = Math.max(px, Math.min(cx, px + pw));
                 const nearY = Math.max(py, Math.min(cy, py + ph));
                 const dx = cx - nearX;
@@ -310,26 +220,84 @@
             if (obstacle.type === 'wall') {
                 const left = obstacle.x1;
                 const right = obstacle.x2 + obstacle.w;
-                const gapCenter = obstacle.gap + obstacle.x2 + obstacle.w / 2;
-                const top = obstacle.y;
+                const gapStart = 20;
+                const gapEnd = 20 + obstacle.gap;
 
-                // Верхняя часть стены
-                if (py < top + 20 && px + pw > left && px < right) return true;
+                // Если корабль вообще не пересекает стену по горизонтали
+                if (px + pw < left || px > right) return false;
 
-                // Нижняя часть стены (после разрыва)
-                if (py + ph > top + 20 + obstacle.gap && px + pw > left && px < right) return true;
+                // Проверяем пересечение по вертикали
+                const topY = obstacle.y;
+                const bottomY = obstacle.y + H;
 
+                // Проверяем верхнюю часть стены (до разрыва)
+                if (py < topY + gapStart && py + ph > topY) return true;
+                // Проверяем нижнюю часть стены (после разрыва)
+                if (py < topY + gapEnd && py + ph > topY + gapEnd) return true;
+                // Если корабль внутри разрыва — нет столкновения
                 return false;
             }
 
             return false;
         }
 
-        // ---- ОТРИСОВКА ----
+        function update() {
+            if (!gameStarted || gameOver) return;
+
+            speed += 0.001;
+            score += Math.floor(speed);
+            scoreDisplay.textContent = score;
+
+            spawnTimer++;
+            const spawnRate = Math.max(20, 70 - speed * 2);
+            if (spawnTimer > spawnRate) {
+                spawnTimer = 0;
+                spawnObstacle();
+            }
+
+            if (keys.ArrowLeft) player.x -= 5;
+            if (keys.ArrowRight) player.x += 5;
+            if (keys.ArrowUp) player.y -= 5;
+            if (keys.ArrowDown) player.y += 5;
+
+            if (touchX !== null) {
+                const dx = touchX - (player.x + player.w / 2);
+                if (Math.abs(dx) > 10) {
+                    player.x += Math.sign(dx) * 5;
+                }
+            }
+
+            player.x = Math.max(0, Math.min(W - player.w, player.x));
+            player.y = Math.max(0, Math.min(H - player.h, player.y));
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const o = obstacles[i];
+                o.y += speed;
+
+                if (o.y > H + 50) {
+                    obstacles.splice(i, 1);
+                    continue;
+                }
+
+                if (checkCollision(player, o)) {
+                    gameOver = true;
+                    saveBest();
+                    return;
+                }
+            }
+
+            for (let s of stars) {
+                s.y += s.speed;
+                if (s.y > H) {
+                    s.y = 0;
+                    s.x = Math.random() * W;
+                }
+            }
+        }
+
         function draw() {
             ctx.clearRect(0, 0, W, H);
 
-            // Звёзды
             for (let s of stars) {
                 ctx.beginPath();
                 ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
@@ -337,7 +305,6 @@
                 ctx.fill();
             }
 
-            // Препятствия
             for (let o of obstacles) {
                 if (o.type === 'asteroid') {
                     ctx.beginPath();
@@ -353,37 +320,34 @@
                 }
 
                 if (o.type === 'wall') {
+                    const gapStart = 20;
+                    const gapEnd = 20 + o.gap;
+                    const left = o.x1;
+                    const right = o.x2 + o.w;
+
                     ctx.fillStyle = '#e74c3c';
                     ctx.shadowBlur = 10;
                     ctx.shadowColor = '#e74c3c';
 
-                    // Верхняя часть стены
-                    ctx.fillRect(o.x1, o.y, o.w, 20);
-                    // Нижняя часть стены (после разрыва)
-                    ctx.fillRect(o.x1, o.y + 20 + o.gap, o.w, H);
+                    ctx.fillRect(left, o.y, o.w, gapStart);
+                    ctx.fillRect(left, o.y + gapEnd, o.w, H);
                     ctx.shadowBlur = 0;
                 }
             }
 
-            // Игрок (космический корабль)
-            const px = player.x;
-            const py = player.y;
-            const pw = player.w;
-            const ph = player.h;
+            const px = player.x, py = player.y, pw = player.w, ph = player.h;
 
             ctx.shadowBlur = 20;
             ctx.shadowColor = '#2ecc71';
 
-            // Корпус
             ctx.fillStyle = '#2ecc71';
             ctx.beginPath();
-            ctx.moveTo(px + pw / 2, py);
+            ctx.moveTo(px + pw/2, py);
             ctx.lineTo(px + pw, py + ph);
             ctx.lineTo(px, py + ph);
             ctx.closePath();
             ctx.fill();
 
-            // Крылья (маленькие треугольники по бокам)
             ctx.fillStyle = '#27ae60';
             ctx.beginPath();
             ctx.moveTo(px, py + 5);
@@ -401,27 +365,24 @@
 
             ctx.shadowBlur = 0;
 
-            // Иллюминатор
             ctx.fillStyle = '#a0d8f1';
             ctx.beginPath();
-            ctx.arc(px + pw / 2, py + ph * 0.35, 6, 0, Math.PI * 2);
+            ctx.arc(px + pw/2, py + ph * 0.35, 6, 0, Math.PI * 2);
             ctx.fill();
 
-            // Game Over
             if (gameOver) {
                 ctx.fillStyle = 'rgba(0,0,0,0.5)';
                 ctx.fillRect(0, 0, W, H);
-
                 ctx.fillStyle = '#fff';
                 ctx.font = 'bold 36px monospace';
                 ctx.textAlign = 'center';
-                ctx.fillText('💥', W / 2, H / 2 - 30);
+                ctx.fillText('💥', W/2, H/2 - 30);
                 ctx.font = '20px monospace';
                 ctx.fillStyle = '#e74c3c';
-                ctx.fillText('ИГРА ОКОНЧЕНА', W / 2, H / 2 + 30);
+                ctx.fillText('ИГРА ОКОНЧЕНА', W/2, H/2 + 30);
                 ctx.fillStyle = '#c0d0e6';
                 ctx.font = '16px monospace';
-                ctx.fillText('Нажми «НАЧАТЬ»', W / 2, H / 2 + 70);
+                ctx.fillText('Нажми «НАЧАТЬ»', W/2, H/2 + 70);
             }
 
             if (!gameStarted && !gameOver) {
@@ -430,24 +391,22 @@
                 ctx.fillStyle = '#fff';
                 ctx.font = '24px monospace';
                 ctx.textAlign = 'center';
-                ctx.fillText('🚀 КОСМИЧЕСКИЙ РАННЕР', W / 2, H / 2 - 20);
+                ctx.fillText('🚀 КОСМИЧЕСКИЙ РАННЕР', W/2, H/2 - 20);
                 ctx.font = '16px monospace';
                 ctx.fillStyle = '#c0d0e6';
-                ctx.fillText('Нажми «НАЧАТЬ»', W / 2, H / 2 + 30);
+                ctx.fillText('Нажми «НАЧАТЬ»', W/2, H/2 + 30);
             }
         }
 
-        // ---- ЦИКЛ ИГРЫ ----
         function gameLoop() {
             update();
             draw();
             requestAnimationFrame(gameLoop);
         }
 
-        // ---- СБРОС ИГРЫ ----
         function resetGame() {
-            player.x = W / 2 - PLAYER_WIDTH / 2;
-            player.y = H - 80;
+            player.x = W/2 - PLAYER_WIDTH/2;
+            player.y = H - 90;
             obstacles = [];
             score = 0;
             speed = 3;
@@ -459,14 +418,9 @@
             initStars();
         }
 
-        // ---- УПРАВЛЕНИЕ ----
         function setupControls() {
-            // Клавиатура
             document.addEventListener('keydown', (e) => {
-                if (e.key in keys) {
-                    keys[e.key] = true;
-                    e.preventDefault();
-                }
+                if (e.key in keys) { keys[e.key] = true; e.preventDefault(); }
                 if (e.key === ' ' || e.key === 'Space') {
                     e.preventDefault();
                     if (gameOver || !gameStarted) resetGame();
@@ -474,19 +428,12 @@
             });
 
             document.addEventListener('keyup', (e) => {
-                if (e.key in keys) {
-                    keys[e.key] = false;
-                    e.preventDefault();
-                }
+                if (e.key in keys) { keys[e.key] = false; e.preventDefault(); }
             });
 
-            // Свайпы / касания (телефон)
             canvas.addEventListener('touchstart', (e) => {
                 e.preventDefault();
-                if (gameOver || !gameStarted) {
-                    resetGame();
-                    return;
-                }
+                if (gameOver || !gameStarted) { resetGame(); return; }
                 const rect = canvas.getBoundingClientRect();
                 const scaleX = canvas.width / rect.width;
                 const touch = e.touches[0];
@@ -506,11 +453,9 @@
                 touchX = null;
             });
 
-            // Кнопка "Начать"
             document.getElementById('restartBtn').addEventListener('click', resetGame);
         }
 
-        // ---- СТАРТ ----
         function start() {
             initStars();
             loadBest();
