@@ -134,16 +134,16 @@
         const bestDisplay = document.getElementById('bestDisplay');
 
         const W = 400, H = 600;
-        const PLAYER_SIZE = 30;
+        const PLAYER_SIZE = 28;
 
         let player = { x: W/2 - PLAYER_SIZE/2, y: H - 100, size: PLAYER_SIZE };
-        let obstacles = [];
+        let asteroids = [];
         let stars = [];
         let score = 0;
         let bestScore = 0;
         let gameOver = false;
         let gameStarted = false;
-        let speed = 4;
+        let speed = 3;
         let spawnTimer = 0;
 
         let keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false };
@@ -178,57 +178,25 @@
             }
         }
 
-        function spawnObstacle() {
-            const type = Math.random() > 0.5 ? 'asteroid' : 'wall';
-            if (type === 'asteroid') {
-                const r = 15 + Math.random() * 20;
-                obstacles.push({
-                    type: 'asteroid',
-                    x: Math.random() * (W - r * 2) + r,
-                    y: -r - 10,
-                    r: r
-                });
-            } else {
-                const w = 40 + Math.random() * 50;
-                const gap = 60 + Math.random() * 50;
-                obstacles.push({
-                    type: 'wall',
-                    x1: Math.random() * (W - w - 20) + 10,
-                    w: w,
-                    gap: gap,
-                    y: -20
-                });
-            }
+        function spawnAsteroid() {
+            const r = 15 + Math.random() * 22;
+            asteroids.push({
+                x: Math.random() * (W - r * 2) + r,
+                y: -r - 10,
+                r: r
+            });
         }
 
-        function checkCollision(player, obstacle) {
+        function checkCollision(player, asteroid) {
             const px = player.x, py = player.y, size = player.size;
+            const cx = asteroid.x, cy = asteroid.y, r = asteroid.r;
 
-            if (obstacle.type === 'asteroid') {
-                const cx = obstacle.x, cy = obstacle.y, r = obstacle.r;
-                const nearX = Math.max(px, Math.min(cx, px + size));
-                const nearY = Math.max(py, Math.min(cy, py + size));
-                const dx = cx - nearX;
-                const dy = cy - nearY;
-                return (dx * dx + dy * dy) < (r * r);
-            }
+            const nearX = Math.max(px, Math.min(cx, px + size));
+            const nearY = Math.max(py, Math.min(cy, py + size));
+            const dx = cx - nearX;
+            const dy = cy - nearY;
 
-            if (obstacle.type === 'wall') {
-                const left = obstacle.x1;
-                const right = obstacle.x1 + obstacle.w;
-                const gapStart = 20;
-                const gapEnd = 20 + obstacle.gap;
-                const topY = obstacle.y;
-
-                if (px + size < left || px > right) return false;
-
-                if (py + size > topY && py < topY + gapStart) return true;
-                if (py + size > topY + gapEnd && py < topY + gapEnd + 20) return true;
-
-                return false;
-            }
-
-            return false;
+            return (dx * dx + dy * dy) < (r * r);
         }
 
         function update() {
@@ -239,36 +207,36 @@
             scoreDisplay.textContent = score;
 
             spawnTimer++;
-            if (spawnTimer > Math.max(25, 80 - speed * 1.5)) {
+            if (spawnTimer > Math.max(30, 85 - speed * 1.5)) {
                 spawnTimer = 0;
-                spawnObstacle();
+                spawnAsteroid();
             }
 
-            if (keys.ArrowLeft) player.x -= 6;
-            if (keys.ArrowRight) player.x += 6;
-            if (keys.ArrowUp) player.y -= 6;
-            if (keys.ArrowDown) player.y += 6;
+            if (keys.ArrowLeft) player.x -= 5.5;
+            if (keys.ArrowRight) player.x += 5.5;
+            if (keys.ArrowUp) player.y -= 5.5;
+            if (keys.ArrowDown) player.y += 5.5;
 
             if (touchX !== null) {
                 const dx = touchX - (player.x + player.size / 2);
                 const dy = touchY - (player.y + player.size / 2);
-                if (Math.abs(dx) > 8) player.x += Math.sign(dx) * 6;
-                if (Math.abs(dy) > 8) player.y += Math.sign(dy) * 6;
+                if (Math.abs(dx) > 8) player.x += Math.sign(dx) * 5.5;
+                if (Math.abs(dy) > 8) player.y += Math.sign(dy) * 5.5;
             }
 
             player.x = Math.max(0, Math.min(W - player.size, player.x));
             player.y = Math.max(0, Math.min(H - player.size, player.y));
 
-            for (let i = obstacles.length - 1; i >= 0; i--) {
-                const o = obstacles[i];
-                o.y += speed;
+            for (let i = asteroids.length - 1; i >= 0; i--) {
+                const a = asteroids[i];
+                a.y += speed;
 
-                if (o.y > H + 50) {
-                    obstacles.splice(i, 1);
+                if (a.y > H + 50) {
+                    asteroids.splice(i, 1);
                     continue;
                 }
 
-                if (checkCollision(player, o)) {
+                if (checkCollision(player, a)) {
                     gameOver = true;
                     saveBest();
                     return;
@@ -294,34 +262,23 @@
                 ctx.fill();
             }
 
-            for (let o of obstacles) {
-                if (o.type === 'asteroid') {
-                    ctx.beginPath();
-                    ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
-                    const grad = ctx.createRadialGradient(o.x - 4, o.y - 4, 2, o.x, o.y, o.r);
-                    grad.addColorStop(0, '#a0a0a0');
-                    grad.addColorStop(1, '#2a2a2a');
-                    ctx.fillStyle = grad;
-                    ctx.fill();
-                    ctx.strokeStyle = '#5a5a5a';
-                    ctx.lineWidth = 2;
-                    ctx.stroke();
-                }
+            for (let a of asteroids) {
+                ctx.beginPath();
+                ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2);
+                const grad = ctx.createRadialGradient(a.x - 4, a.y - 4, 2, a.x, a.y, a.r);
+                grad.addColorStop(0, '#a0a0a0');
+                grad.addColorStop(1, '#2a2a2a');
+                ctx.fillStyle = grad;
+                ctx.fill();
+                ctx.strokeStyle = '#5a5a5a';
+                ctx.lineWidth = 2;
+                ctx.stroke();
 
-                if (o.type === 'wall') {
-                    const left = o.x1;
-                    const w = o.w;
-                    const gapStart = 20;
-                    const gapEnd = 20 + o.gap;
-
-                    ctx.fillStyle = '#e74c3c';
-                    ctx.shadowBlur = 10;
-                    ctx.shadowColor = '#e74c3c';
-
-                    ctx.fillRect(left, o.y, w, gapStart);
-                    ctx.fillRect(left, o.y + gapEnd, w, H);
-                    ctx.shadowBlur = 0;
-                }
+                // маленький блик
+                ctx.beginPath();
+                ctx.arc(a.x - 4, a.y - 5, 3, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.fill();
             }
 
             const px = player.x, py = player.y, s = player.size;
@@ -360,7 +317,7 @@
             ctx.fill();
 
             if (gameOver) {
-                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillStyle = 'rgba(0,0,0,0.55)';
                 ctx.fillRect(0, 0, W, H);
                 ctx.fillStyle = '#fff';
                 ctx.font = 'bold 36px monospace';
@@ -396,9 +353,9 @@
         function resetGame() {
             player.x = W/2 - PLAYER_SIZE/2;
             player.y = H - 100;
-            obstacles = [];
+            asteroids = [];
             score = 0;
-            speed = 4;
+            speed = 3;
             spawnTimer = 0;
             gameOver = false;
             gameStarted = true;
