@@ -154,6 +154,7 @@
                 enemy.r = 18;
                 enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
                 enemy.shootTimer = 0;
+                enemy.shootInterval = 120; // раз в 2 секунды
             } else if (type < 0.66) {
                 enemy.type = 'blue';
                 enemy.r = 16;
@@ -185,8 +186,6 @@
                 enemies.push({ type: 'shield', x, y: -20, r, speed: speed });
             } else if (type < 0.66) {
                 enemies.push({ type: 'guns', x, y: -20, r, speed: speed });
-            } else {
-                // телепорты спавнятся отдельно
             }
         }
 
@@ -230,7 +229,6 @@
                 guns.timer--;
                 if (guns.timer <= 0) guns.active = false;
                 else {
-                    // выстрел
                     bullets.push({ x: player.x + player.size/2, y: player.y - 5, dx: 0, dy: -10, w: 4, h: 12, color: '#ffaa00' });
                 }
             }
@@ -240,15 +238,13 @@
                 const b = bullets[i];
                 b.x += b.dx;
                 b.y += b.dy;
-                if (b.y < -20) { bullets.splice(i, 1); continue; }
-                // проверка попадания по врагам
+                if (b.y < -20 || b.y > H + 20) { bullets.splice(i, 1); continue; }
                 for (let j = enemies.length - 1; j >= 0; j--) {
                     const e = enemies[j];
                     if (e.type === 'shield' || e.type === 'guns') continue;
                     const dx = b.x - e.x;
                     const dy = b.y - e.y;
                     if (dx*dx + dy*dy < e.r * e.r) {
-                        // враг уничтожен
                         enemies.splice(j, 1);
                         bullets.splice(i, 1);
                         score += 50;
@@ -264,10 +260,11 @@
 
                 if (e.type === 'red') {
                     e.shootTimer = (e.shootTimer || 0) + 1;
-                    if (e.shootTimer > 30) {
+                    if (e.shootTimer > e.shootInterval) {
                         e.shootTimer = 0;
-                        enemies.push({ type: 'mini', x: e.x - 10, y: e.y, r: 6, speed: speed * 0.8, dx: -2, dy: 0 });
-                        enemies.push({ type: 'mini', x: e.x + 10, y: e.y, r: 6, speed: speed * 0.8, dx: 2, dy: 0 });
+                        // мини-шары летят только вниз
+                        enemies.push({ type: 'mini', x: e.x - 10, y: e.y, r: 6, speed: speed * 0.8, dx: 0, dy: 2 });
+                        enemies.push({ type: 'mini', x: e.x + 10, y: e.y, r: 6, speed: speed * 0.8, dx: 0, dy: 2 });
                     }
                 }
 
@@ -288,6 +285,7 @@
 
                 if (e.type === 'mini') {
                     e.x += e.dx || 0;
+                    e.y += e.speed || speed * 0.8;
                     if (e.x < 0 || e.x > W) e.dx = -e.dx;
                 }
 
@@ -300,7 +298,6 @@
                     if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
                         if (shield.active) {
                             shield.active = false;
-                            // эффект щита
                         } else {
                             gameOver = true; saveBest(); return;
                         }
@@ -313,7 +310,7 @@
                     const dy = player.y + player.size/2 - e.y;
                     if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
                         shield.active = true;
-                        shield.timer = 600; // 10 сек
+                        shield.timer = 600;
                         enemies.splice(i, 1);
                         continue;
                     }
@@ -323,7 +320,7 @@
                     const dy = player.y + player.size/2 - e.y;
                     if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
                         guns.active = true;
-                        guns.timer = 420; // 7 сек
+                        guns.timer = 420;
                         enemies.splice(i, 1);
                         continue;
                     }
@@ -336,11 +333,9 @@
                 const p = portals[i];
                 p.y += p.speed;
                 if (p.y > H + 50) { portals.splice(i, 1); continue; }
-                // проверка входа в портал
                 const dx = player.x + player.size/2 - (p.x + p.w/2);
                 const dy = player.y + player.size/2 - (p.y + p.h/2);
                 if (dx*dx + dy*dy < 400 && portalCooldown <= 0) {
-                    // телепорт
                     const other = portals.find(pp => pp.id !== p.id);
                     if (other) {
                         player.x = other.x + other.w/2 - player.size/2;
@@ -350,7 +345,6 @@
                 }
             }
 
-            // звёзды
             for (let s of stars) {
                 s.y += s.speed;
                 if (s.y > H) { s.y = 0; s.x = Math.random() * W; }
@@ -392,12 +386,10 @@
                 ctx.fillStyle = color;
                 ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
                 ctx.shadowBlur = 0;
-                // блик
                 ctx.fillStyle = 'rgba(255,255,255,0.2)';
                 ctx.beginPath(); ctx.arc(e.x-3, e.y-4, e.r*0.3, 0, Math.PI*2); ctx.fill();
             }
 
-            // порталы
             for (let p of portals) {
                 ctx.shadowBlur = 20;
                 ctx.shadowColor = '#00ccff';
@@ -415,7 +407,6 @@
                 ctx.fillRect(p.x + 5, p.y + 5, p.w - 10, p.h - 10);
             }
 
-            // пули
             for (let b of bullets) {
                 ctx.fillStyle = b.color || '#ffaa00';
                 ctx.shadowBlur = 15;
@@ -424,7 +415,6 @@
                 ctx.shadowBlur = 0;
             }
 
-            // игрок
             const px = player.x, py = player.y, s = player.size;
             if (shield.active) {
                 ctx.shadowBlur = 30;
