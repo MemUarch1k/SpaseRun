@@ -48,7 +48,7 @@
         const W = 400, H = 600;
         const PLAYER_SIZE = 28;
 
-        // ---- ЗВУКИ ----
+        // ---- ЗВУКИ (без изменений) ----
         let audioCtx = null;
         let engineSource = null;
         let engineGain = null;
@@ -67,7 +67,6 @@
             const data = buffer.getChannelData(0);
             for (let i = 0; i < bufferSize; i++) {
                 let t = i / audioCtx.sampleRate;
-                // Глубокий гул ускорителей
                 let hum = Math.sin(2 * Math.PI * 45 * t) * 0.6;
                 let rumble = Math.sin(2 * Math.PI * 90 * t + 0.5) * 0.35;
                 let high = Math.sin(2 * Math.PI * 180 * t * 1.2) * 0.12;
@@ -77,31 +76,22 @@
             const source = audioCtx.createBufferSource();
             source.buffer = buffer;
             source.loop = true;
-
             const gain = audioCtx.createGain();
             gain.gain.value = 0.2;
             gain.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime + 0.2);
-
             source.connect(gain);
             gain.connect(audioCtx.destination);
             source.start();
-
             engineSource = source;
             engineGain = gain;
-
-            // Обновляем громкость в зависимости от высоты корабля
             updateEngineVolume();
         }
 
         function updateEngineVolume() {
             if (!engineGain || !gameStarted || gameOver) return;
-            // Высота корабля: 0 внизу, 1 вверху
             const yNorm = 1 - (player.y / H);
-            // Громкость: от 0.1 (внизу) до 0.35 (вверху)
             const vol = 0.1 + yNorm * 0.25;
-            try {
-                engineGain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.1);
-            } catch(e) {}
+            try { engineGain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.1); } catch(e) {}
             requestAnimationFrame(updateEngineVolume);
         }
 
@@ -109,11 +99,7 @@
             if (engineGain) {
                 engineGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
                 setTimeout(() => {
-                    if (engineSource) {
-                        try { engineSource.stop(); } catch(e) {}
-                        engineSource = null;
-                        engineGain = null;
-                    }
+                    if (engineSource) { try { engineSource.stop(); } catch(e) {} engineSource = null; engineGain = null; }
                 }, 400);
             }
         }
@@ -149,20 +135,38 @@
         let bullets = [];
         let portals = [];
         let stars = [];
-        let shieldActive = false, shieldTimer = 0;
+        let shieldActive = false, shieldTimer = 0, shieldHits = 0;
         let gunsActive = false, gunsTimer = 0;
+        let triGunActive = false, triGunTimer = 0;
         let score = 0, bestScore = 0, gameOver = false, gameStarted = false;
         let speed = 3, spawnTimer = 0;
         let keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false };
         let touchX = null, touchY = null;
         let portalCooldown = 0;
+        let bossActive = false, bossSpawnScore = 5000;
+        let boss = null;
+        let scoreBlocked = false;
 
-        let boss = null, bossActive = false, bossSpawnScore = 5000;
-
+        // ---- БОСС ----
         function spawnBoss() {
             if (bossActive) return;
-            boss = { x: W/2, y: -60, r: 40, hp: 50, maxHp: 50, speed: 0.8, phase: 0, shootTimer: 0, shootInterval: 90 };
+            boss = {
+                x: W/2,
+                y: -40,
+                r: 40,
+                hp: 50,
+                maxHp: 50,
+                phase: 0,
+                shootTimer: 0,
+                shootInterval: 90,
+                dir: 1,
+                floatSpeed: 0.3,
+                minionTimer: 0,
+                minionPhase: false,
+                minionTarget: null
+            };
             bossActive = true;
+            scoreBlocked = true;
             bossHealthEl.style.display = 'block';
             bossHpDisplay.textContent = boss.hp;
             for (let i = 0; i < 3; i++) {
@@ -170,6 +174,7 @@
             }
         }
 
+        // ---- ОСТАЛЬНЫЕ ФУНКЦИИ ----
         function initStars() {
             stars = [];
             for (let i = 0; i < 80; i++) {
@@ -187,6 +192,7 @@
         }
 
         function spawnEnemy() {
+            if (bossActive && scoreBlocked) return;
             const type = Math.random();
             let enemy = { type: 'normal', x: 0, y: -30, r: 20, speed: speed, phase: 0 };
 
@@ -211,7 +217,7 @@
                 enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
             }
 
-            const bonusChance = bossActive ? 0.92 : 0.95;
+            const bonusChance = 0.95;
             if (Math.random() > bonusChance) {
                 const bonusType = Math.random() > 0.5 ? 'shield' : 'guns';
                 enemy.type = bonusType;
@@ -236,22 +242,26 @@
         function update() {
             if (!gameStarted || gameOver) return;
 
-            speed += 0.002;
-            score += Math.floor(speed * 0.8) + 1;
-            scoreDisplay.textContent = score;
+            if (!scoreBlocked) {
+                speed += 0.002;
+                score += Math.floor(speed * 0.8) + 1;
+                scoreDisplay.textContent = score;
+            }
 
             if (score >= bossSpawnScore && !bossActive && !gameOver) {
                 spawnBoss();
                 bossSpawnScore += 5000;
             }
 
-            spawnTimer++;
-            const spawnRate = Math.max(22, 65 - speed * 1.0);
-            if (spawnTimer > spawnRate) {
-                spawnTimer = 0;
-                spawnEnemy();
-                if (Math.random() > 0.8) spawnEnemy();
-                if (Math.random() > 0.97 && portals.length === 0) spawnPortal();
+            if (!bossActive) {
+                spawnTimer++;
+                const spawnRate = Math.max(22, 65 - speed * 1.0);
+                if (spawnTimer > spawnRate) {
+                    spawnTimer = 0;
+                    spawnEnemy();
+                    if (Math.random() > 0.8) spawnEnemy();
+                    if (Math.random() > 0.97 && portals.length === 0) spawnPortal();
+                }
             }
 
             // Управление
@@ -267,19 +277,31 @@
             }
             player.x = Math.max(0, Math.min(W - player.size, player.x));
             player.y = Math.max(0, Math.min(H - player.size, player.y));
-
-            // Обновляем громкость двигателя
             updateEngineVolume();
 
-            // Щит
-            if (shieldActive) { shieldTimer--; if (shieldTimer <= 0) shieldActive = false; }
+            // Щит (2 удара)
+            if (shieldActive) {
+                if (shieldHits <= 0) { shieldActive = false; }
+            }
 
-            // Пушка
+            // Обычная пушка
             if (gunsActive) {
                 gunsTimer--;
                 if (gunsTimer <= 0) { gunsActive = false; }
                 else if (gunsTimer % 30 === 0) {
                     bullets.push({ x: player.x + player.size/2 - 2, y: player.y - 5, dx: 0, dy: -12, w: 4, h: 14, color: '#ffaa00' });
+                    soundGunShot();
+                }
+            }
+
+            // Тройная пушка (от босса)
+            if (triGunActive) {
+                triGunTimer--;
+                if (triGunTimer <= 0) { triGunActive = false; }
+                else if (triGunTimer % 20 === 0) {
+                    bullets.push({ x: player.x + player.size/2 - 10, y: player.y - 5, dx: -2, dy: -10, w: 3, h: 10, color: '#ff66ff' });
+                    bullets.push({ x: player.x + player.size/2, y: player.y - 5, dx: 0, dy: -12, w: 4, h: 14, color: '#ff88ff' });
+                    bullets.push({ x: player.x + player.size/2 + 10, y: player.y - 5, dx: 2, dy: -10, w: 3, h: 10, color: '#ff66ff' });
                     soundGunShot();
                 }
             }
@@ -295,7 +317,8 @@
                     const dx = b.x - e.x; const dy = b.y - e.y;
                     if (dx*dx + dy*dy < e.r * e.r) {
                         soundDestroy();
-                        enemies.splice(j, 1); bullets.splice(i, 1); score += 50;
+                        enemies.splice(j, 1); bullets.splice(i, 1); 
+                        if (!scoreBlocked) score += 50;
                         break;
                     }
                 }
@@ -305,8 +328,14 @@
                         boss.hp--; bossHpDisplay.textContent = boss.hp;
                         bullets.splice(i, 1); soundDestroy();
                         if (boss.hp <= 0) {
-                            soundBossDefeat(); bossActive = false; boss = null;
-                            bossHealthEl.style.display = 'none'; score += 500;
+                            soundBossDefeat();
+                            // Выпадает щит на 2 удара
+                            enemies.push({ type: 'shield_2', x: boss.x, y: boss.y, r: 14, speed: speed * 0.3 });
+                            bossActive = false; boss = null;
+                            bossHealthEl.style.display = 'none';
+                            scoreBlocked = false;
+                            score += 500;
+                            scoreDisplay.textContent = score;
                             for (let k = 0; k < 20; k++) {
                                 setTimeout(() => {
                                     enemies.push({ type: 'mini', x: boss.x + (Math.random() - 0.5) * 60, y: boss.y + (Math.random() - 0.5) * 60, r: 4 + Math.random() * 6, speed: speed * 0.3, dx: (Math.random() - 0.5) * 3, dy: (Math.random() - 0.5) * 3 });
@@ -340,40 +369,157 @@
                 if (e.type === 'mini') { e.x += e.dx || 0; e.y += e.speed || speed * 0.5; if (e.x < 0 || e.x > W) e.dx = -e.dx; }
                 if (e.y > H + 50) { enemies.splice(i, 1); continue; }
 
-                if (e.type !== 'shield' && e.type !== 'guns') {
+                // Столкновение с игроком
+                if (e.type !== 'shield' && e.type !== 'shield_2' && e.type !== 'guns') {
                     const dx = player.x + player.size/2 - e.x; const dy = player.y + player.size/2 - e.y;
                     if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
-                        if (shieldActive) { soundShieldBreak(); shieldActive = false; enemies.splice(i, 1); continue; }
-                        else { soundCrash(); stopEngine(); gameOver = true; saveBest(); return; }
+                        if (shieldActive) {
+                            soundShieldBreak();
+                            shieldHits--;
+                            if (shieldHits <= 0) shieldActive = false;
+                            enemies.splice(i, 1);
+                            continue;
+                        } else {
+                            soundCrash(); stopEngine(); gameOver = true; saveBest(); return;
+                        }
                     }
                 }
 
+                // Бонусы
                 if (e.type === 'shield') {
                     const dx = player.x + player.size/2 - e.x; const dy = player.y + player.size/2 - e.y;
                     if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
-                        soundShieldPickup(); shieldActive = true; shieldTimer = 600; enemies.splice(i, 1); continue;
+                        soundShieldPickup();
+                        shieldActive = true;
+                        shieldHits = 1;
+                        enemies.splice(i, 1);
+                        continue;
+                    }
+                }
+                if (e.type === 'shield_2') {
+                    const dx = player.x + player.size/2 - e.x; const dy = player.y + player.size/2 - e.y;
+                    if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
+                        soundShieldPickup();
+                        shieldActive = true;
+                        shieldHits = 2;
+                        enemies.splice(i, 1);
+                        continue;
                     }
                 }
                 if (e.type === 'guns') {
                     const dx = player.x + player.size/2 - e.x; const dy = player.y + player.size/2 - e.y;
                     if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
-                        soundGunPickup(); gunsActive = true; gunsTimer = 420; enemies.splice(i, 1); continue;
+                        soundGunPickup();
+                        gunsActive = true;
+                        gunsTimer = 420;
+                        enemies.splice(i, 1);
+                        continue;
                     }
                 }
             }
 
-            // Босс
+            // Босс (новая логика)
             if (bossActive && boss) {
-                boss.y += boss.speed; boss.phase += 0.02; boss.x += Math.sin(boss.phase) * 1.2;
+                // Движение: держится вверху, покачивается, медленно опускается/поднимается
+                boss.y += boss.dir * boss.floatSpeed;
+                if (boss.y < -20) boss.dir = 1;
+                if (boss.y > 120) boss.dir = -1;
+                boss.phase += 0.02;
+                boss.x += Math.sin(boss.phase) * 1.2;
+
+                // Стрельба босса
                 boss.shootTimer = (boss.shootTimer || 0) + 1;
                 if (boss.shootTimer > boss.shootInterval) {
                     boss.shootTimer = 0;
+                    // Обычная стрельба (веер)
                     for (let k = 0; k < 6; k++) {
                         const angle = k * Math.PI / 3 + boss.phase;
                         enemies.push({ type: 'mini', x: boss.x, y: boss.y + 10, r: 6, speed: speed * 0.4, dx: Math.sin(angle) * 2.5, dy: 1.5 });
                     }
+                    // Шанс выстрелить орбом с тройной пушкой (20%)
+                    if (Math.random() < 0.2) {
+                        enemies.push({ type: 'tri_gun_orb', x: boss.x, y: boss.y + 10, r: 12, speed: speed * 0.4, dx: 0, dy: 1.5 });
+                    }
                 }
-                if (boss.y > H + 100) { bossActive = false; boss = null; bossHealthEl.style.display = 'none'; }
+
+                // Миньоны-снаряды при 30 HP
+                if (boss.hp <= 30 && !boss.minionPhase) {
+                    boss.minionPhase = true;
+                    boss.minionTimer = 0;
+                    // Запоминаем позицию игрока
+                    boss.minionTarget = { x: player.x + player.size/2, y: player.y + player.size/2 };
+                    // Создаём 2 серых шара
+                    enemies.push({ type: 'minion_missile', x: boss.x - 20, y: boss.y + 10, r: 12, speed: 0.8, target: boss.minionTarget, phase: 'aiming', timer: 0 });
+                    enemies.push({ type: 'minion_missile', x: boss.x + 20, y: boss.y + 10, r: 12, speed: 0.8, target: boss.minionTarget, phase: 'aiming', timer: 0 });
+                }
+
+                // Обновление миньонов-снарядов
+                for (let i = enemies.length - 1; i >= 0; i--) {
+                    const e = enemies[i];
+                    if (e.type === 'minion_missile') {
+                        if (e.phase === 'aiming') {
+                            e.timer++;
+                            if (e.timer > 120) { // 2 секунды
+                                e.phase = 'firing';
+                                e.target = { x: player.x + player.size/2, y: player.y + player.size/2 };
+                            }
+                            e.y += 0.2; // медленно падают во время прицеливания
+                        } else if (e.phase === 'firing') {
+                            const dx = e.target.x - e.x;
+                            const dy = e.target.y - e.y;
+                            const dist = Math.sqrt(dx*dx + dy*dy);
+                            if (dist > 3) {
+                                e.x += (dx / dist) * 3;
+                                e.y += (dy / dist) * 3;
+                            }
+                            e.y += 0.5;
+                        }
+                        if (e.y > H + 50) { enemies.splice(i, 1); continue; }
+                        // Столкновение с игроком (убивает)
+                        const dx = player.x + player.size/2 - e.x;
+                        const dy = player.y + player.size/2 - e.y;
+                        if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
+                            if (shieldActive) {
+                                soundShieldBreak();
+                                shieldHits--;
+                                if (shieldHits <= 0) shieldActive = false;
+                                enemies.splice(i, 1);
+                                continue;
+                            } else {
+                                soundCrash(); stopEngine(); gameOver = true; saveBest(); return;
+                            }
+                        }
+                    }
+                    if (e.type === 'tri_gun_orb') {
+                        e.x += e.dx || 0;
+                        e.y += e.speed || speed * 0.4;
+                        if (e.y > H + 50) { enemies.splice(i, 1); continue; }
+                        const dx = player.x + player.size/2 - e.x;
+                        const dy = player.y + player.size/2 - e.y;
+                        if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
+                            soundGunPickup();
+                            triGunActive = true;
+                            triGunTimer = 300; // 5 секунд
+                            enemies.splice(i, 1);
+                            continue;
+                        }
+                    }
+                }
+
+                // Касание босса = смерть
+                const dx = player.x + player.size/2 - boss.x;
+                const dy = player.y + player.size/2 - boss.y;
+                if (dx*dx + dy*dy < (boss.r + player.size/2) * (boss.r + player.size/2)) {
+                    if (shieldActive) {
+                        soundShieldBreak();
+                        shieldHits--;
+                        if (shieldHits <= 0) shieldActive = false;
+                    } else {
+                        soundCrash(); stopEngine(); gameOver = true; saveBest(); return;
+                    }
+                }
+
+                if (boss.y > H + 100) { bossActive = false; boss = null; bossHealthEl.style.display = 'none'; scoreBlocked = false; }
             }
 
             // Порталы
@@ -406,8 +552,39 @@
             }
 
             for (let e of enemies) {
-                if (e.type === 'shield') { ctx.fillStyle = '#00ff88'; ctx.shadowBlur = 20; ctx.shadowColor = '#00ff88'; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText('🛡️', e.x, e.y+4); continue; }
-                if (e.type === 'guns') { ctx.fillStyle = '#ff8800'; ctx.shadowBlur = 20; ctx.shadowColor = '#ff8800'; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText('🔫', e.x, e.y+4); continue; }
+                if (e.type === 'shield' || e.type === 'shield_2') {
+                    ctx.fillStyle = '#00ff88'; ctx.shadowBlur = 20; ctx.shadowColor = '#00ff88';
+                    ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#fff'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
+                    const label = e.type === 'shield_2' ? '🛡️x2' : '🛡️';
+                    ctx.fillText(label, e.x, e.y+4);
+                    continue;
+                }
+                if (e.type === 'guns') {
+                    ctx.fillStyle = '#ff8800'; ctx.shadowBlur = 20; ctx.shadowColor = '#ff8800';
+                    ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#fff'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
+                    ctx.fillText('🔫', e.x, e.y+4);
+                    continue;
+                }
+                if (e.type === 'tri_gun_orb') {
+                    ctx.shadowBlur = 30; ctx.shadowColor = '#ff66ff';
+                    ctx.fillStyle = '#cc44cc'; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#fff'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
+                    ctx.fillText('💜', e.x, e.y+4);
+                    continue;
+                }
+                if (e.type === 'minion_missile') {
+                    ctx.shadowBlur = 15; ctx.shadowColor = '#aaaaaa';
+                    ctx.fillStyle = '#888'; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#aaa'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
+                    ctx.fillText('●', e.x, e.y+2);
+                    continue;
+                }
                 ctx.shadowBlur = 10;
                 let color = '#888';
                 if (e.type === 'red') color = '#ff4444';
@@ -425,10 +602,20 @@
 
             for (let p of portals) { ctx.shadowBlur = 20; ctx.shadowColor = '#00ccff'; ctx.fillStyle = '#004466'; ctx.fillRect(p.x, p.y, p.w, p.h); ctx.strokeStyle = '#00ccff'; ctx.lineWidth = 2; ctx.strokeRect(p.x, p.y, p.w, p.h); ctx.shadowBlur = 0; ctx.fillStyle = '#00ccff'; ctx.font = '18px monospace'; ctx.textAlign = 'center'; ctx.fillText('🌀', p.x + p.w/2, p.y + p.h - 6); ctx.fillStyle = 'rgba(0,200,255,0.15)'; ctx.fillRect(p.x + 5, p.y + 5, p.w - 10, p.h - 10); }
 
-            for (let b of bullets) { ctx.fillStyle = b.color || '#ffaa00'; ctx.shadowBlur = 15; ctx.shadowColor = b.color || '#ffaa00'; ctx.fillRect(b.x, b.y, b.w, b.h); ctx.shadowBlur = 0; }
+            for (let b of bullets) {
+                ctx.fillStyle = b.color || '#ffaa00';
+                ctx.shadowBlur = 15; ctx.shadowColor = b.color || '#ffaa00';
+                ctx.fillRect(b.x, b.y, b.w, b.h);
+                ctx.shadowBlur = 0;
+            }
 
             const px = player.x, py = player.y, s = player.size;
-            if (shieldActive) { ctx.shadowBlur = 30; ctx.shadowColor = '#00ff88'; ctx.strokeStyle = 'rgba(0,255,136,0.4)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px + s/2, py + s/2, s/2 + 6, 0, Math.PI*2); ctx.stroke(); ctx.shadowBlur = 0; }
+            if (shieldActive) {
+                ctx.shadowBlur = 30; ctx.shadowColor = '#00ff88';
+                ctx.strokeStyle = 'rgba(0,255,136,0.4)'; ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.arc(px + s/2, py + s/2, s/2 + 6, 0, Math.PI*2); ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
             ctx.shadowBlur = 20; ctx.shadowColor = '#2ecc71';
             ctx.fillStyle = '#2ecc71';
             ctx.beginPath(); ctx.moveTo(px + s/2, py); ctx.lineTo(px + s, py + s); ctx.lineTo(px, py + s); ctx.closePath(); ctx.fill();
@@ -461,8 +648,10 @@
             player.x = W/2 - PLAYER_SIZE/2; player.y = H - 100;
             enemies = []; bullets = []; portals = []; score = 0; speed = 3; spawnTimer = 0;
             gameOver = false; gameStarted = true;
-            shieldActive = false; shieldTimer = 0; gunsActive = false; gunsTimer = 0; portalCooldown = 0;
+            shieldActive = false; shieldTimer = 0; shieldHits = 0; gunsActive = false; gunsTimer = 0;
+            triGunActive = false; triGunTimer = 0; portalCooldown = 0;
             boss = null; bossActive = false; bossHealthEl.style.display = 'none'; bossSpawnScore = 5000;
+            scoreBlocked = false;
             scoreDisplay.textContent = '0'; loadBest(); initStars();
         }
 
