@@ -67,34 +67,54 @@
             const data = buffer.getChannelData(0);
             for (let i = 0; i < bufferSize; i++) {
                 let t = i / audioCtx.sampleRate;
-                let hum = Math.sin(2 * Math.PI * 55 * t) * 0.5;
-                let rumble = Math.sin(2 * Math.PI * 110 * t + 0.5) * 0.3;
-                let noise = (Math.random() - 0.5) * 0.15;
-                data[i] = (hum + rumble + noise) * 0.25;
+                // Глубокий гул ускорителей
+                let hum = Math.sin(2 * Math.PI * 45 * t) * 0.6;
+                let rumble = Math.sin(2 * Math.PI * 90 * t + 0.5) * 0.35;
+                let high = Math.sin(2 * Math.PI * 180 * t * 1.2) * 0.12;
+                let noise = (Math.random() - 0.5) * 0.1;
+                data[i] = (hum + rumble + high + noise) * 0.25;
             }
             const source = audioCtx.createBufferSource();
             source.buffer = buffer;
             source.loop = true;
+
             const gain = audioCtx.createGain();
-            gain.gain.value = 0.25;
-            gain.gain.exponentialRampToValueAtTime(0.25, audioCtx.currentTime + 0.1);
+            gain.gain.value = 0.2;
+            gain.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime + 0.2);
+
             source.connect(gain);
             gain.connect(audioCtx.destination);
             source.start();
+
             engineSource = source;
             engineGain = gain;
+
+            // Обновляем громкость в зависимости от высоты корабля
+            updateEngineVolume();
+        }
+
+        function updateEngineVolume() {
+            if (!engineGain || !gameStarted || gameOver) return;
+            // Высота корабля: 0 внизу, 1 вверху
+            const yNorm = 1 - (player.y / H);
+            // Громкость: от 0.1 (внизу) до 0.35 (вверху)
+            const vol = 0.1 + yNorm * 0.25;
+            try {
+                engineGain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.1);
+            } catch(e) {}
+            requestAnimationFrame(updateEngineVolume);
         }
 
         function stopEngine() {
             if (engineGain) {
-                engineGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
+                engineGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
                 setTimeout(() => {
                     if (engineSource) {
                         try { engineSource.stop(); } catch(e) {}
                         engineSource = null;
                         engineGain = null;
                     }
-                }, 300);
+                }, 400);
             }
         }
 
@@ -141,7 +161,7 @@
 
         function spawnBoss() {
             if (bossActive) return;
-            boss = { x: W/2, y: -60, r: 40, hp: 50, maxHp: 50, speed: 0.8, phase: 0, shootTimer: 0, shootInterval: 60 };
+            boss = { x: W/2, y: -60, r: 40, hp: 50, maxHp: 50, speed: 0.8, phase: 0, shootTimer: 0, shootInterval: 90 };
             bossActive = true;
             bossHealthEl.style.display = 'block';
             bossHpDisplay.textContent = boss.hp;
@@ -191,7 +211,6 @@
                 enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
             }
 
-            // Бонусы
             const bonusChance = bossActive ? 0.92 : 0.95;
             if (Math.random() > bonusChance) {
                 const bonusType = Math.random() > 0.5 ? 'shield' : 'guns';
@@ -249,6 +268,9 @@
             player.x = Math.max(0, Math.min(W - player.size, player.x));
             player.y = Math.max(0, Math.min(H - player.size, player.y));
 
+            // Обновляем громкость двигателя
+            updateEngineVolume();
+
             // Щит
             if (shieldActive) { shieldTimer--; if (shieldTimer <= 0) shieldActive = false; }
 
@@ -304,7 +326,6 @@
                     e.shootTimer = (e.shootTimer || 0) + 1;
                     if (e.shootTimer > e.shootInterval) {
                         e.shootTimer = 0;
-                        // Стреляет наискосок назад (влево-вниз и вправо-вниз)
                         enemies.push({ type: 'mini', x: e.x - 14, y: e.y, r: 6, speed: speed * 0.5, dx: -1.8, dy: 1.8 });
                         enemies.push({ type: 'mini', x: e.x + 14, y: e.y, r: 6, speed: speed * 0.5, dx: 1.8, dy: 1.8 });
                     }
