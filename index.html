@@ -48,7 +48,7 @@
         const W = 400, H = 600;
         const PLAYER_SIZE = 28;
 
-        // ---- ЗВУКИ (без изменений) ----
+        // ---- ЗВУКИ ----
         let audioCtx = null;
         let engineSource = null;
         let engineGain = null;
@@ -128,10 +128,12 @@
         function soundPortal() { playTone(300, 0.2, 0.08); setTimeout(() => playTone(500, 0.2, 0.06), 120); }
         function soundCrash() { playTone(150, 0.3, 0.2, 'sawtooth'); setTimeout(() => playTone(80, 0.4, 0.15, 'square'), 100); }
         function soundBossDefeat() { for (let i = 0; i < 5; i++) { setTimeout(() => playTone(400 + i * 80, 0.15, 0.12), i * 80); } }
+        function soundWarning() { playTone(800, 0.08, 0.06); }
 
         // ---- ИГРА ----
         let player = { x: W/2 - PLAYER_SIZE/2, y: H - 100, size: PLAYER_SIZE };
         let enemies = [];
+        let wallGuns = [];
         let bullets = [];
         let portals = [];
         let stars = [];
@@ -146,6 +148,7 @@
         let bossActive = false, bossSpawnScore = 5000;
         let boss = null;
         let scoreBlocked = false;
+        let wallGunTimer = 0;
 
         // ---- БОСС ----
         function spawnBoss() {
@@ -161,7 +164,6 @@
                 shootInterval: 90,
                 dir: 1,
                 floatSpeed: 0.3,
-                minionTimer: 0,
                 minionPhase: false,
                 minionTarget: null
             };
@@ -174,7 +176,73 @@
             }
         }
 
-        // ---- ОСТАЛЬНЫЕ ФУНКЦИИ ----
+        // ---- ВРАГИ И БОНУСЫ ----
+        function spawnEnemy() {
+            if (bossActive && scoreBlocked) return;
+            const type = Math.random();
+            let enemy = { type: 'normal', x: 0, y: -30, r: 20, speed: speed, phase: 0 };
+
+            if (type < 0.30) {
+                enemy.type = 'blue';
+                enemy.r = 16;
+                enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
+                enemy.phase = Math.random() * Math.PI * 2;
+            } else if (type < 0.60) {
+                enemy.type = 'purple';
+                enemy.r = 22;
+                enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
+            } else {
+                enemy.type = 'gray';
+                enemy.r = 18;
+                enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
+            }
+
+            // МНОГО БОНУСОВ (щит и пушки)
+            const bonusChance = 0.82; // 18% шанс на бонус
+            if (Math.random() > bonusChance) {
+                const bonusType = Math.random() > 0.5 ? 'shield' : 'guns';
+                enemy.type = bonusType;
+                enemy.r = 14;
+                enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
+                enemy.speed = speed * 0.5;
+            }
+
+            enemies.push(enemy);
+        }
+
+        // ---- ПУШКИ НА СТЕНАХ ----
+        function spawnWallGun() {
+            const side = Math.random() > 0.5 ? 'left' : 'right';
+            const y = 50 + Math.random() * (H - 150);
+            wallGuns.push({
+                side: side,
+                x: side === 'left' ? -10 : W + 10,
+                y: y,
+                w: 12,
+                h: 12,
+                state: 'warning',
+                timer: 0,
+                warningFlashes: 0,
+                shot: false
+            });
+        }
+
+        // ---- ПОРТАЛЫ ----
+        function spawnPortal() {
+            if (portals.length >= 2) return;
+            const margin = 80;
+            let x1 = margin + Math.random() * (W - margin * 2);
+            let x2 = margin + Math.random() * (W - margin * 2);
+            while (Math.abs(x1 - x2) < 120) {
+                x2 = margin + Math.random() * (W - margin * 2);
+            }
+            portals = [
+                { x: x1, y: -30, w: 30, h: 30, id: 1, speed: speed * 0.6 },
+                { x: x2, y: -30 - 80, w: 30, h: 30, id: 2, speed: speed * 0.6 }
+            ];
+        }
+
+        // ---- ИНИЦИАЛИЗАЦИЯ ----
         function initStars() {
             stars = [];
             for (let i = 0; i < 80; i++) {
@@ -191,61 +259,7 @@
             if (score > bestScore) { bestScore = score; localStorage.setItem('spaceRunnerBest', String(bestScore)); bestDisplay.textContent = bestScore; }
         }
 
-        function spawnEnemy() {
-            if (bossActive && scoreBlocked) return;
-            const type = Math.random();
-            let enemy = { type: 'normal', x: 0, y: -30, r: 20, speed: speed, phase: 0 };
-
-            if (type < 0.25) {
-                enemy.type = 'red';
-                enemy.r = 18;
-                enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
-                enemy.shootTimer = 0;
-                enemy.shootInterval = 60;
-                enemy.shootCount = 0;
-            } else if (type < 0.50) {
-                enemy.type = 'blue';
-                enemy.r = 16;
-                enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
-                enemy.phase = Math.random() * Math.PI * 2;
-            } else if (type < 0.75) {
-                enemy.type = 'purple';
-                enemy.r = 22;
-                enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
-            } else {
-                enemy.type = 'gray';
-                enemy.r = 18;
-                enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
-            }
-
-            // Чаще бонусы
-            const bonusChance = 0.88;
-            if (Math.random() > bonusChance) {
-                const bonusType = Math.random() > 0.5 ? 'shield' : 'guns';
-                enemy.type = bonusType;
-                enemy.r = 14;
-                enemy.x = Math.random() * (W - enemy.r * 2) + enemy.r;
-                enemy.speed = speed * 0.5;
-            }
-
-            enemies.push(enemy);
-        }
-
-        function spawnPortal() {
-            if (portals.length >= 2) return;
-            // Порталы дальше друг от друга
-            const margin = 80;
-            let x1 = margin + Math.random() * (W - margin * 2);
-            let x2 = margin + Math.random() * (W - margin * 2);
-            while (Math.abs(x1 - x2) < 120) {
-                x2 = margin + Math.random() * (W - margin * 2);
-            }
-            portals = [
-                { x: x1, y: -30, w: 30, h: 30, id: 1, speed: speed * 0.6 },
-                { x: x2, y: -30 - 80, w: 30, h: 30, id: 2, speed: speed * 0.6 }
-            ];
-        }
-
+        // ---- ОБНОВЛЕНИЕ ----
         function update() {
             if (!gameStarted || gameOver) return;
 
@@ -266,9 +280,17 @@
                 if (spawnTimer > spawnRate) {
                     spawnTimer = 0;
                     spawnEnemy();
-                    if (Math.random() > 0.8) spawnEnemy();
-                    if (Math.random() > 0.94 && portals.length === 0) spawnPortal();
+                    if (Math.random() > 0.7) spawnEnemy();
+                    if (Math.random() > 0.93 && portals.length === 0) spawnPortal();
                 }
+            }
+
+            // Спавн пушек на стенах (не слишком часто)
+            wallGunTimer++;
+            const gunSpawnRate = Math.max(60, 180 - speed * 2);
+            if (wallGunTimer > gunSpawnRate && wallGuns.length < 3) {
+                wallGunTimer = 0;
+                if (Math.random() > 0.5) spawnWallGun();
             }
 
             // Управление
@@ -286,7 +308,7 @@
             player.y = Math.max(0, Math.min(H - player.size, player.y));
             updateEngineVolume();
 
-            // Щит (2 удара)
+            // Щит
             if (shieldActive && shieldHits <= 0) { shieldActive = false; }
 
             // Обычная пушка
@@ -299,7 +321,7 @@
                 }
             }
 
-            // Тройная пушка (от босса)
+            // Тройная пушка
             if (triGunActive) {
                 triGunTimer--;
                 if (triGunTimer <= 0) { triGunActive = false; }
@@ -311,7 +333,7 @@
                 }
             }
 
-            // Пули
+            // Пули игрока
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
                 b.x += b.dx; b.y += b.dy;
@@ -324,6 +346,20 @@
                         soundDestroy();
                         enemies.splice(j, 1); bullets.splice(i, 1); 
                         if (!scoreBlocked) score += 50;
+                        break;
+                    }
+                }
+                // Попадание по пушкам на стенах
+                for (let j = wallGuns.length - 1; j >= 0; j--) {
+                    const g = wallGuns[j];
+                    if (g.state === 'dead') continue;
+                    const dx = b.x - g.x;
+                    const dy = b.y - g.y;
+                    if (dx*dx + dy*dy < (g.w/2 + 4) * (g.w/2 + 4)) {
+                        soundDestroy();
+                        wallGuns.splice(j, 1);
+                        bullets.splice(i, 1);
+                        if (!scoreBlocked) score += 30;
                         break;
                     }
                 }
@@ -350,28 +386,49 @@
                 }
             }
 
-            // Враги (полная переработка красных шаров)
+            // Пушки на стенах
+            for (let i = wallGuns.length - 1; i >= 0; i--) {
+                const g = wallGuns[i];
+                if (g.state === 'dead') { wallGuns.splice(i, 1); continue; }
+
+                // Движение: выдвижение из стены
+                if (g.state === 'warning') {
+                    g.timer++;
+                    // Мигание предупреждения (2 раза за 1 секунду)
+                    const flashInterval = 20; // кадров
+                    const flashCount = Math.floor(g.timer / flashInterval);
+                    if (flashCount < 4 && g.timer % flashInterval === 0) {
+                        soundWarning();
+                    }
+                    if (g.timer > 80) { // ~1.3 секунды
+                        g.state = 'active';
+                        g.timer = 0;
+                    }
+                } else if (g.state === 'active') {
+                    // Выдвижение
+                    if (g.side === 'left') {
+                        g.x += 3;
+                        if (g.x >= 10) { g.x = 10; g.state = 'firing'; }
+                    } else {
+                        g.x -= 3;
+                        if (g.x <= W - 10) { g.x = W - 10; g.state = 'firing'; }
+                    }
+                } else if (g.state === 'firing') {
+                    // Выстрел
+                    const dx = g.side === 'left' ? 1 : -1;
+                    bullets.push({ x: g.x + (g.side === 'left' ? 6 : -6), y: g.y, dx: dx * 5, dy: 0, w: 6, h: 6, color: '#ff2222' });
+                    g.state = 'dead';
+                    setTimeout(() => {
+                        const idx = wallGuns.indexOf(g);
+                        if (idx !== -1) wallGuns.splice(idx, 1);
+                    }, 100);
+                }
+            }
+
+            // Враги (без красных шаров)
             for (let i = enemies.length - 1; i >= 0; i--) {
                 const e = enemies[i];
                 e.y += e.speed || speed;
-
-                if (e.type === 'red') {
-                    e.shootTimer = (e.shootTimer || 0) + 1;
-                    if (e.shootTimer > e.shootInterval) {
-                        e.shootTimer = 0;
-                        // Стреляет назад (вверх и в стороны)
-                        for (let k = 0; k < 3; k++) {
-                            const angle = -Math.PI / 2 + (k - 1) * 0.5;
-                            enemies.push({ type: 'mini_back', x: e.x, y: e.y - 5, r: 5, speed: speed * 0.4, dx: Math.sin(angle) * 2.0, dy: Math.cos(angle) * 2.0 });
-                        }
-                    }
-                }
-
-                if (e.type === 'mini_back') {
-                    e.x += e.dx || 0;
-                    e.y += e.dy || 0;
-                    if (e.x < 0 || e.x > W || e.y < -20 || e.y > H + 20) { enemies.splice(i, 1); continue; }
-                }
 
                 if (e.type === 'blue') { e.phase += 0.07; e.x += Math.sin(e.phase) * 2.2; }
                 if (e.type === 'purple') {
@@ -398,7 +455,7 @@
                     }
                 }
 
-                // Бонусы
+                // Бонусы (щит и пушки)
                 if (e.type === 'shield') {
                     const dx = player.x + player.size/2 - e.x; const dy = player.y + player.size/2 - e.y;
                     if (dx*dx + dy*dy < (e.r + player.size/2) * (e.r + player.size/2)) {
@@ -456,7 +513,7 @@
                         const angle = k * Math.PI / 3 + boss.phase;
                         enemies.push({ type: 'mini', x: boss.x, y: boss.y + 10, r: 6, speed: speed * 0.4, dx: Math.sin(angle) * 2.5, dy: 1.5 });
                     }
-                    // Чаще тройной орб
+                    // Чаще тройной орб (безопасный)
                     if (Math.random() < 0.35) {
                         enemies.push({ type: 'tri_gun_orb', x: boss.x, y: boss.y + 10, r: 12, speed: speed * 0.3, dx: 0, dy: 0.8 });
                     }
@@ -542,10 +599,12 @@
             for (let s of stars) { s.y += s.speed; if (s.y > H) { s.y = 0; s.x = Math.random() * W; } }
         }
 
+        // ---- ОТРИСОВКА ----
         function draw() {
             ctx.clearRect(0, 0, W, H);
             for (let s of stars) { ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI*2); ctx.fillStyle = `rgba(255,255,255,${0.3 + s.size*0.15})`; ctx.fill(); }
 
+            // Босс
             if (bossActive && boss) {
                 ctx.shadowBlur = 30; ctx.shadowColor = '#ff4444';
                 ctx.fillStyle = '#cc2222'; ctx.beginPath(); ctx.arc(boss.x, boss.y, boss.r, 0, Math.PI*2); ctx.fill();
@@ -554,6 +613,31 @@
                 ctx.fillStyle = '#ff4444'; ctx.font = '18px monospace'; ctx.textAlign = 'center'; ctx.fillText('👾', boss.x, boss.y + 8);
             }
 
+            // Пушки на стенах
+            for (let g of wallGuns) {
+                if (g.state === 'dead') continue;
+                // Предупреждение (мигание)
+                if (g.state === 'warning') {
+                    const flash = Math.floor(g.timer / 15) % 2 === 0;
+                    if (flash) {
+                        ctx.fillStyle = 'rgba(255,0,0,0.3)';
+                        ctx.fillRect(g.side === 'left' ? 0 : W - 20, g.y - 30, 20, 60);
+                    }
+                    ctx.fillStyle = '#ff8800';
+                    ctx.font = '16px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('⚠️', g.side === 'left' ? 15 : W - 15, g.y + 5);
+                } else if (g.state === 'active' || g.state === 'firing') {
+                    ctx.fillStyle = '#ff2222';
+                    ctx.shadowBlur = 15; ctx.shadowColor = '#ff2222';
+                    ctx.fillRect(g.x - g.w/2, g.y - g.h/2, g.w, g.h);
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#ff8844';
+                    ctx.fillRect(g.x - g.w/4, g.y - g.h/4, g.w/2, g.h/2);
+                }
+            }
+
+            // Враги
             for (let e of enemies) {
                 if (e.type === 'shield' || e.type === 'shield_2') {
                     ctx.fillStyle = '#00ff88'; ctx.shadowBlur = 20; ctx.shadowColor = '#00ff88';
@@ -590,12 +674,10 @@
                 }
                 ctx.shadowBlur = 10;
                 let color = '#888';
-                if (e.type === 'red') color = '#ff4444';
-                else if (e.type === 'blue') color = '#4488ff';
+                if (e.type === 'blue') color = '#4488ff';
                 else if (e.type === 'purple') color = '#aa44ff';
                 else if (e.type === 'gray') color = '#999';
                 else if (e.type === 'mini') color = '#ff8844';
-                else if (e.type === 'mini_back') color = '#ff6644';
                 ctx.shadowColor = color;
                 ctx.fillStyle = color;
                 ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
@@ -604,8 +686,18 @@
                 ctx.beginPath(); ctx.arc(e.x-3, e.y-4, e.r*0.25, 0, Math.PI*2); ctx.fill();
             }
 
-            for (let p of portals) { ctx.shadowBlur = 20; ctx.shadowColor = '#00ccff'; ctx.fillStyle = '#004466'; ctx.fillRect(p.x, p.y, p.w, p.h); ctx.strokeStyle = '#00ccff'; ctx.lineWidth = 2; ctx.strokeRect(p.x, p.y, p.w, p.h); ctx.shadowBlur = 0; ctx.fillStyle = '#00ccff'; ctx.font = '18px monospace'; ctx.textAlign = 'center'; ctx.fillText('🌀', p.x + p.w/2, p.y + p.h - 6); ctx.fillStyle = 'rgba(0,200,255,0.15)'; ctx.fillRect(p.x + 5, p.y + 5, p.w - 10, p.h - 10); }
+            // Порталы
+            for (let p of portals) {
+                ctx.shadowBlur = 20; ctx.shadowColor = '#00ccff';
+                ctx.fillStyle = '#004466'; ctx.fillRect(p.x, p.y, p.w, p.h);
+                ctx.strokeStyle = '#00ccff'; ctx.lineWidth = 2; ctx.strokeRect(p.x, p.y, p.w, p.h);
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#00ccff'; ctx.font = '18px monospace'; ctx.textAlign = 'center';
+                ctx.fillText('🌀', p.x + p.w/2, p.y + p.h - 6);
+                ctx.fillStyle = 'rgba(0,200,255,0.15)'; ctx.fillRect(p.x + 5, p.y + 5, p.w - 10, p.h - 10);
+            }
 
+            // Пули
             for (let b of bullets) {
                 ctx.fillStyle = b.color || '#ffaa00';
                 ctx.shadowBlur = 15; ctx.shadowColor = b.color || '#ffaa00';
@@ -613,6 +705,7 @@
                 ctx.shadowBlur = 0;
             }
 
+            // Игрок
             const px = player.x, py = player.y, s = player.size;
             if (shieldActive) {
                 ctx.shadowBlur = 30; ctx.shadowColor = '#00ff88';
@@ -650,7 +743,8 @@
             if (engineSource) { try { engineSource.stop(); } catch(e) {} engineSource = null; engineGain = null; }
             setTimeout(() => { startEngine(); }, 100);
             player.x = W/2 - PLAYER_SIZE/2; player.y = H - 100;
-            enemies = []; bullets = []; portals = []; score = 0; speed = 3; spawnTimer = 0;
+            enemies = []; bullets = []; portals = []; wallGuns = [];
+            score = 0; speed = 3; spawnTimer = 0; wallGunTimer = 0;
             gameOver = false; gameStarted = true;
             shieldActive = false; shieldHits = 0; gunsActive = false; gunsTimer = 0;
             triGunActive = false; triGunTimer = 0; portalCooldown = 0;
