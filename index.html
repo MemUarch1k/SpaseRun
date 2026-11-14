@@ -13,7 +13,6 @@
       justify-content: center;
       overflow: hidden;
     }
-
     canvas {
       background: radial-gradient(circle at 30% 20%, #0b1730 0%, #050810 60%, #020308 100%);
       border: 1px solid #27406d;
@@ -30,59 +29,24 @@
     const W = canvas.width;
     const H = canvas.height;
 
-    // Сколько очков давать в секунду.
-    // Сейчас стоит 1000, чтобы босс появлялся быстро для теста.
-    // Если хочешь дольше, поставь 100 или 50.
-    const SCORE_PER_SECOND = 1000;
-
-    // Каждые сколько очков появляется босс.
-    const BOSS_EVERY = 10000;
+    const SCORE_PER_SECOND = 100; // Очки начисляются медленно
+    const BOSS_EVERY = 2000;      // Порог для босса (можно вернуть 10000)
 
     let keys = {};
-
-    let player;
-    let bullets;
-    let enemyLasers;
-    let asteroids;
-    let orbs;
-    let particles;
-    let stars;
-
-    let score;
-    let time;
-    let boss;
-    let bossNumber;
-    let nextBossScore;
-    let spawnTimer;
-    let orbTimer;
-    let idCounter;
-    let gameOver;
+    let player, bullets, enemyLasers, asteroids, orbs, particles, stars;
+    let score, time, boss, bossNumber, nextBossScore, spawnTimer, orbTimer, idCounter, gameOver;
 
     function makeStars() {
       stars = [];
       for (let i = 0; i < 150; i++) {
-        stars.push({
-          x: Math.random() * W,
-          y: Math.random() * H,
-          z: Math.random() * 1.5 + 0.3,
-          r: Math.random() * 2 + 0.5
-        });
+        stars.push({ x: Math.random() * W, y: Math.random() * H, z: Math.random() * 1.5 + 0.3, r: Math.random() * 2 + 0.5 });
       }
     }
-
     makeStars();
 
-    function rand(a, b) {
-      return a + Math.random() * (b - a);
-    }
-
-    function dist(a, b) {
-      return Math.hypot(a.x - b.x, a.y - b.y);
-    }
-
-    function clamp(v, min, max) {
-      return Math.max(min, Math.min(max, v));
-    }
+    function rand(a, b) { return a + Math.random() * (b - a); }
+    function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
     const orbStyles = {
       shield: { color: '#59b7ff', label: 'Щ' },
@@ -92,26 +56,12 @@
     };
 
     function reset() {
-      player = {
-        x: 120,
-        y: H / 2,
-        r: 14,
-        speed: 280,
-        cooldown: 0,
-        shield: 0,
-        laserTime: 0,
-        tripleTime: 0,
-        slowCharges: 1,
-        slowActive: 0,
-        invuln: 0
-      };
-
+      player = { x: 120, y: H / 2, r: 14, speed: 280, cooldown: 0, shield: 0, laserTime: 0, tripleTime: 0, slowCharges: 1, slowActive: 0, invuln: 0 };
       bullets = [];
       enemyLasers = [];
       asteroids = [];
       orbs = [];
       particles = [];
-
       score = 0;
       time = 0;
       boss = null;
@@ -122,34 +72,15 @@
       idCounter = 1;
       gameOver = false;
     }
-
     reset();
 
     window.addEventListener('keydown', (e) => {
-      if (
-        e.code === 'Space' ||
-        e.code === 'ArrowUp' ||
-        e.code === 'ArrowDown' ||
-        e.code === 'ArrowLeft' ||
-        e.code === 'ArrowRight'
-      ) {
-        e.preventDefault();
-      }
-
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
       keys[e.code] = true;
-
-      if (e.code === 'KeyE' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-        activateSlow();
-      }
-
-      if (gameOver && e.code === 'KeyR') {
-        reset();
-      }
+      if (e.code === 'KeyE' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') activateSlow();
+      if (gameOver && e.code === 'KeyR') reset();
     });
-
-    window.addEventListener('keyup', (e) => {
-      keys[e.code] = false;
-    });
+    window.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
     function activateSlow() {
       if (!gameOver && player.slowCharges > 0 && player.slowActive <= 0) {
@@ -162,53 +93,20 @@
     function spawnAsteroid() {
       let type = 'red';
       const roll = Math.random();
+      if (score > 1500 && roll < 0.18) type = 'orange';
+      else if (score > 500 && roll < 0.45) type = 'purple';
 
-      if (score > 1500 && roll < 0.18) {
-        type = 'orange';
-      } else if (score > 500 && roll < 0.45) {
-        type = 'purple';
+      const a = { id: idCounter++, type, x: W + 70, y: rand(35, H - 35), vx: 0, vy: 0, hp: 2, r: 18, shootTimer: 0, color: '#ff5449', score: 20, homingTimer: 0 };
+
+      if (type === 'red') { 
+        a.r = rand(16, 30); a.hp = Math.ceil(a.r / 10); a.vx = -rand(80, 180); a.vy = rand(-50, 50); a.color = '#ff5449'; a.score = 20; 
       }
-
-      const a = {
-        id: idCounter++,
-        type,
-        x: W + 70,
-        y: rand(35, H - 35),
-        vx: 0,
-        vy: 0,
-        hp: 2,
-        r: 18,
-        shootTimer: 0,
-        color: '#ff5449',
-        score: 20
-      };
-
-      if (type === 'red') {
-        a.r = rand(16, 30);
-        a.hp = Math.ceil(a.r / 10);
-        a.vx = -rand(80, 180);
-        a.vy = rand(-50, 50);
-        a.color = '#ff5449';
-        a.score = 20;
+      if (type === 'purple') { 
+        a.r = rand(14, 22); a.hp = 2; a.vx = -rand(60, 100); a.vy = rand(-30, 30); a.color = '#b06cff'; a.score = 35; 
+        a.homingTimer = rand(1.0, 1.8); // Время, в течение которого он пытается задеть игрока
       }
-
-      if (type === 'purple') {
-        a.r = rand(14, 22);
-        a.hp = 2;
-        a.vx = -rand(50, 100);
-        a.vy = 0;
-        a.color = '#b06cff';
-        a.score = 35;
-      }
-
-      if (type === 'orange') {
-        a.r = rand(20, 32);
-        a.hp = 4;
-        a.vx = -rand(45, 95);
-        a.vy = rand(-25, 25);
-        a.color = '#ff9f43';
-        a.shootTimer = rand(0.8, 1.8);
-        a.score = 50;
+      if (type === 'orange') { 
+        a.r = rand(20, 32); a.hp = 4; a.vx = -rand(45, 95); a.vy = rand(-25, 25); a.color = '#ff9f43'; a.shootTimer = rand(0.8, 1.8); a.score = 50; 
       }
 
       asteroids.push(a);
@@ -217,90 +115,52 @@
     function spawnOrb(x, y, type) {
       if (!type) {
         const r = Math.random();
-
-        if (r < 0.28) {
-          type = 'shield';
-        } else if (r < 0.55) {
-          type = 'laser';
-        } else if (r < 0.8) {
-          type = 'slow';
-        } else {
-          type = 'triple';
-        }
+        if (r < 0.28) type = 'shield';
+        else if (r < 0.55) type = 'laser';
+        else if (r < 0.8) type = 'slow';
+        else type = 'triple';
       }
-
-      orbs.push({
-        x,
-        y,
-        type,
-        r: 13,
-        vx: -75,
-        phase: rand(0, Math.PI * 2)
-      });
+      orbs.push({ x, y, type, r: 13, vx: -75, phase: rand(0, Math.PI * 2) });
     }
 
     function shoot() {
       const laser = player.laserTime > 0;
-
       player.cooldown = laser ? 0.09 : 0.17;
-
       const speed = laser ? 780 : 580;
       const dmg = laser ? 5 : 1;
       const r = laser ? 6 : 3;
       const color = laser ? '#67f6ff' : '#ffe08a';
-
       const angles = player.tripleTime > 0 ? [-0.18, 0, 0.18] : [0];
 
       angles.forEach((ang) => {
-        bullets.push({
-          x: player.x + 18,
-          y: player.y,
-          vx: Math.cos(ang) * speed,
-          vy: Math.sin(ang) * speed,
-          r,
-          dmg,
-          color,
-          pierce: laser,
-          hit: [],
-          hitBoss: false
-        });
+        bullets.push({ x: player.x + 18, y: player.y, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed, r, dmg, color, pierce: laser, hit: [], hitBoss: false });
       });
     }
 
     function spawnBoss() {
       bossNumber++;
-
-      const hp =
-        bossNumber === 1
-          ? 10
-          : 50 + (bossNumber - 2) * 50;
-
-      boss = {
-        hp,
-        maxHp: hp,
-        x: W + 110,
-        y: H / 2,
-        r: 50,
-        phase: 0,
-        shootTimer: 1.4,
-        state: 'enter'
+      const hp = bossNumber === 1 ? 10 : 50 + (bossNumber - 2) * 50;
+      
+      boss = { 
+        hp, maxHp: hp, x: W - 135, y: H / 2, r: 50, phase: 0, 
+        shootTimer: 1.5, state: 'fight', 
+        attackType: 0, // 0 - лазеры, 1 - мини-метеориты
+        miniMeteorsAlive: 0 // Счётчик живых мини-метеоритов от босса
       };
+      
+      // ВАЖНО: Увеличиваем порог следующего босса ОТ ТЕКУЩИХ очков.
+      // Это гарантирует, что новый босс не появится сразу же.
+      nextBossScore = score + BOSS_EVERY;
 
-      nextBossScore += BOSS_EVERY;
-      addParticles(W - 80, H / 2, '#ff3b6b', 30);
+      asteroids.length = 0;
+      enemyLasers.length = 0;
+      addParticles(W - 135, H / 2, '#ff3b6b', 40);
     }
 
     function killBoss() {
       addParticles(boss.x, boss.y, '#ff7aa2', 80);
       score += 2000 * bossNumber;
-
-      for (let i = 0; i < 2; i++) {
-        spawnOrb(
-          boss.x + rand(-40, 10),
-          boss.y + rand(-40, 40)
-        );
-      }
-
+      for (let i = 0; i < 2; i++) spawnOrb(boss.x + rand(-40, 10), boss.y + rand(-40, 40));
       boss = null;
     }
 
@@ -308,31 +168,15 @@
       const a = asteroids[index];
       score += a.score;
       addParticles(a.x, a.y, a.color, 20);
-
-      if (Math.random() < 0.08) {
-        spawnOrb(a.x, a.y);
-      }
-
+      if (Math.random() < 0.08) spawnOrb(a.x, a.y);
       asteroids.splice(index, 1);
     }
 
     function applyOrb(o) {
-      if (o.type === 'shield') {
-        player.shield = Math.min(3, player.shield + 1);
-      }
-
-      if (o.type === 'laser') {
-        player.laserTime = 7;
-      }
-
-      if (o.type === 'slow') {
-        player.slowCharges = Math.min(3, player.slowCharges + 1);
-      }
-
-      if (o.type === 'triple') {
-        player.tripleTime = 9;
-      }
-
+      if (o.type === 'shield') player.shield = Math.min(3, player.shield + 1);
+      if (o.type === 'laser') player.laserTime = 7;
+      if (o.type === 'slow') player.slowCharges = Math.min(3, player.slowCharges + 1);
+      if (o.type === 'triple') player.tripleTime = 9;
       addParticles(player.x, player.y, orbStyles[o.type].color, 25);
     }
 
@@ -340,23 +184,12 @@
       for (let i = 0; i < n; i++) {
         const ang = Math.random() * Math.PI * 2;
         const sp = rand(20, 160);
-
-        particles.push({
-          x,
-          y,
-          vx: Math.cos(ang) * sp,
-          vy: Math.sin(ang) * sp,
-          life: rand(0.25, 0.8),
-          maxLife: 0.8,
-          color,
-          r: rand(1, 4)
-        });
+        particles.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life: rand(0.25, 0.8), maxLife: 0.8, color, r: rand(1, 4) });
       }
     }
 
     function hitPlayer() {
       if (player.invuln > 0 || gameOver) return;
-
       if (player.shield > 0) {
         player.shield--;
         player.invuln = 1.2;
@@ -369,8 +202,9 @@
 
     function update(dt) {
       time += dt;
-
-      if (!gameOver) {
+      
+      // 1. ОЧКИ НАЧИСЛЯЮТСЯ ТОЛЬКО ЕСЛИ НЕТ БОССА И ИГРА НЕ ОКОНЧЕНА
+      if (!gameOver && !boss) {
         score += SCORE_PER_SECOND * dt;
       }
 
@@ -379,30 +213,18 @@
 
       for (const s of stars) {
         s.x -= 30 * s.z * wdt;
-
-        if (s.x < 0) {
-          s.x = W;
-          s.y = Math.random() * H;
-        }
+        if (s.x < 0) { s.x = W; s.y = Math.random() * H; }
       }
 
-      if (gameOver) {
-        updateParticles(dt);
-        return;
-      }
+      if (gameOver) { updateParticles(dt); return; }
 
       player.cooldown -= dt;
       player.laserTime = Math.max(0, player.laserTime - dt);
       player.tripleTime = Math.max(0, player.tripleTime - dt);
       player.invuln = Math.max(0, player.invuln - dt);
+      if (player.slowActive > 0) player.slowActive -= dt;
 
-      if (player.slowActive > 0) {
-        player.slowActive -= dt;
-      }
-
-      let mx = 0;
-      let my = 0;
-
+      let mx = 0, my = 0;
       if (keys.ArrowRight || keys.KeyD) mx++;
       if (keys.ArrowLeft || keys.KeyA) mx--;
       if (keys.ArrowDown || keys.KeyS) my++;
@@ -417,169 +239,157 @@
       player.x = clamp(player.x, 25, W - 25);
       player.y = clamp(player.y, 25, H - 25);
 
-      if (keys.Space && player.cooldown <= 0) {
-        shoot();
-      }
+      if (keys.Space && player.cooldown <= 0) shoot();
 
-      spawnTimer -= wdt;
-
-      if (spawnTimer <= 0) {
-        spawnAsteroid();
-
-        if (score > 20000 && Math.random() < 0.35) {
+      // Астероиды спавнятся только без босса
+      if (!boss) {
+        spawnTimer -= wdt;
+        if (spawnTimer <= 0) {
           spawnAsteroid();
+          if (score > 20000 && Math.random() < 0.35) spawnAsteroid();
+          spawnTimer = Math.max(0.32, 1.05 - score / 120000);
         }
-
-        spawnTimer = Math.max(0.32, 1.05 - score / 120000);
+      } else {
+        spawnTimer = 0.8;
       }
 
       orbTimer -= dt;
+      if (orbTimer <= 0) { spawnOrb(W + 30, rand(60, H - 60)); orbTimer = rand(5, 9); }
 
-      if (orbTimer <= 0) {
-        spawnOrb(W + 30, rand(60, H - 60));
-        orbTimer = rand(5, 9);
-      }
-
-      if (!boss && score >= nextBossScore) {
-        spawnBoss();
-      }
+      if (!boss && score >= nextBossScore) spawnBoss();
 
       for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
-        b.x += b.vx * dt;
-        b.y += b.vy * dt;
-
-        if (b.x > W + 70 || b.x < -70 || b.y < -70 || b.y > H + 70) {
-          bullets.splice(i, 1);
-        }
+        b.x += b.vx * dt; b.y += b.vy * dt;
+        if (b.x > W + 70 || b.x < -70 || b.y < -70 || b.y > H + 70) bullets.splice(i, 1);
       }
 
       for (let i = enemyLasers.length - 1; i >= 0; i--) {
         const l = enemyLasers[i];
-        l.x += l.vx * wdt;
-        l.y += l.vy * wdt;
+        l.x += l.vx * wdt; l.y += l.vy * wdt;
+        
+        // Если это мини-метеорит босса, применяем лёгкое притяжение к игроку
+        if (l.isMiniMeteor) {
+          const dx = player.x - l.x;
+          const dy = player.y - l.y;
+          const d = Math.hypot(dx, dy) || 1;
+          const accel = 120; // Сила притяжения (небольшая)
+          l.vx += (dx / d) * accel * wdt;
+          l.vy += (dy / d) * accel * wdt;
+          
+          // Ограничение максимальной скорости
+          const sp = Math.hypot(l.vx, l.vy);
+          const maxSp = 350;
+          if (sp > maxSp) { l.vx *= maxSp / sp; l.vy *= maxSp / sp; }
+        }
 
-        if (l.x < -80 || l.x > W + 80 || l.y < -80 || l.y > H + 80) {
+        if (l.x < -150 || l.x > W + 150 || l.y < -150 || l.y > H + 150) {
+          // Если удаляем мини-метеорит босса, уменьшаем счётчик
+          if (l.isMiniMeteor && boss) {
+            boss.miniMeteorsAlive--;
+          }
           enemyLasers.splice(i, 1);
         }
       }
 
       for (let i = asteroids.length - 1; i >= 0; i--) {
         const a = asteroids[i];
-
+        
+        // 2. ФИОЛЕТОВЫЕ: Рывок к игроку, затем полёт по инерции
         if (a.type === 'purple') {
-          const dx = player.x - a.x;
-          const dy = player.y - a.y;
-          const d = Math.hypot(dx, dy) || 1;
-
-          const accel = 250;
-
-          a.vx += (dx / d) * accel * wdt;
-          a.vy += (dy / d) * accel * wdt;
-
-          const sp = Math.hypot(a.vx, a.vy);
-          const maxSp = 170 + score / 1000;
-
-          if (sp > maxSp) {
-            a.vx *= maxSp / sp;
-            a.vy *= maxSp / sp;
+          if (a.homingTimer > 0) {
+            a.homingTimer -= wdt;
+            const dx = player.x - a.x;
+            const dy = player.y - a.y;
+            const d = Math.hypot(dx, dy) || 1;
+            const accel = 300;
+            a.vx += (dx / d) * accel * wdt;
+            a.vy += (dy / d) * accel * wdt;
+            
+            const sp = Math.hypot(a.vx, a.vy);
+            const maxSp = 220;
+            if (sp > maxSp) { a.vx *= maxSp / sp; a.vy *= maxSp / sp; }
           }
+          // Если homingTimer <= 0, мы просто не меняем vx/vy, и он летит по инерции
         }
 
-        a.x += a.vx * wdt;
-        a.y += a.vy * wdt;
-
-        if (a.y < a.r + 2 || a.y > H - a.r - 2) {
-          a.vy *= -1;
-        }
+        a.x += a.vx * wdt; a.y += a.vy * wdt;
+        if (a.y < a.r + 2 || a.y > H - a.r - 2) a.vy *= -1;
 
         if (a.type === 'orange') {
           a.shootTimer -= wdt;
-
           if (a.shootTimer <= 0 && a.x < W + 20 && a.x > player.x + 50) {
             a.shootTimer = rand(1.3, 2.2);
-
-            enemyLasers.push({
-              x: a.x,
-              y: a.y,
-              vx: -280,
-              vy: 0,
-              r: 5,
-              color: '#ff5030'
-            });
-
-            enemyLasers.push({
-              x: a.x,
-              y: a.y,
-              vx: -170,
-              vy: 180,
-              r: 4,
-              color: '#ff8c30'
-            });
-
-            enemyLasers.push({
-              x: a.x,
-              y: a.y,
-              vx: -170,
-              vy: -180,
-              r: 4,
-              color: '#ff8c30'
-            });
+            enemyLasers.push({ x: a.x, y: a.y, vx: -280, vy: 0, r: 5, color: '#ff5030', isMiniMeteor: false });
+            enemyLasers.push({ x: a.x, y: a.y, vx: -170, vy: 180, r: 4, color: '#ff8c30', isMiniMeteor: false });
+            enemyLasers.push({ x: a.x, y: a.y, vx: -170, vy: -180, r: 4, color: '#ff8c30', isMiniMeteor: false });
           }
         }
-
-        if (a.x < -110) {
-          asteroids.splice(i, 1);
-        }
+        if (a.x < -110) asteroids.splice(i, 1);
       }
 
       for (let i = orbs.length - 1; i >= 0; i--) {
         const o = orbs[i];
-        o.phase += dt;
-        o.x += o.vx * wdt;
-        o.y += Math.sin(o.phase * 3) * 22 * wdt;
-
-        if (o.x < -60) {
-          orbs.splice(i, 1);
-        }
+        o.phase += dt; o.x += o.vx * wdt; o.y += Math.sin(o.phase * 3) * 22 * wdt;
+        if (o.x < -60) orbs.splice(i, 1);
       }
 
+      // 3 & 4. ЛОГИКА БОССА И ЧЕРЕДОВАНИЕ АТАК
       if (boss) {
         if (boss.state === 'enter') {
           boss.x -= 140 * wdt;
-
-          if (boss.x <= W - 135) {
-            boss.state = 'fight';
-          }
+          if (boss.x <= W - 135) boss.state = 'fight';
         } else {
           boss.phase += wdt;
-
           boss.x = W - 170 + Math.sin(boss.phase * 0.85) * 105;
           boss.y = H / 2 + Math.sin(boss.phase * 1.45) * 175;
           boss.y = clamp(boss.y, 75, H - 75);
-
+          
           boss.shootTimer -= wdt;
+          
+          // Стреляем только если таймер сработал И все предыдущие мини-метеориты уничтожены/улетели
+          if (boss.shootTimer <= 0 && boss.miniMeteorsAlive <= 0) {
+            boss.shootTimer = Math.max(1.0, 2.0 - bossNumber * 0.1); // Базовый кулдаун между атаками
 
-          if (boss.shootTimer <= 0) {
-            boss.shootTimer = Math.max(0.62, 1.65 - bossNumber * 0.12);
-
-            const count = Math.min(11, 5 + bossNumber);
-            const base = Math.atan2(player.y - boss.y, player.x - boss.x);
-            const spread = Math.PI / 3.1;
-
-            for (let i = 0; i < count; i++) {
-              const t = count === 1 ? 0.5 : i / (count - 1);
-              const ang = base + (t - 0.5) * spread;
-              const speed = 245 + bossNumber * 22;
-
-              enemyLasers.push({
-                x: boss.x,
-                y: boss.y,
-                vx: Math.cos(ang) * speed,
-                vy: Math.sin(ang) * speed,
-                r: 5,
-                color: '#ff4f78'
-              });
+            if (boss.attackType === 0) {
+              // --- АТАКА 1: ВЕЕР ЛАЗЕРОВ ---
+              const count = Math.min(11, 5 + bossNumber);
+              const base = Math.atan2(player.y - boss.y, player.x - boss.x);
+              const spread = Math.PI / 3.1;
+              for (let i = 0; i < count; i++) {
+                const t = count === 1 ? 0.5 : i / (count - 1);
+                const ang = base + (t - 0.5) * spread;
+                const speed = 245 + bossNumber * 22;
+                enemyLasers.push({ x: boss.x, y: boss.y, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed, r: 5, color: '#ff4f78', isMiniMeteor: false });
+              }
+              boss.attackType = 1; // Следующая будет 2
+              
+            } else {
+              // --- АТАКА 2: 2 МИНИ-МЕТЕОРИТА ---
+              // Целятся в текущее положение игрока (его последнее место нахождения при выстреле)
+              const targetX = player.x;
+              const targetY = player.y;
+              
+              for (let m = 0; m < 2; m++) {
+                const offsetY = (m === 0) ? -30 : 30; // Вылетают чуть сверху и снизу босса
+                const dx = targetX - boss.x;
+                const dy = (targetY + offsetY) - boss.y;
+                const d = Math.hypot(dx, dy) || 1;
+                const speed = 200;
+                
+                enemyLasers.push({ 
+                  x: boss.x, 
+                  y: boss.y + offsetY, 
+                  vx: (dx / d) * speed, 
+                  vy: (dy / d) * speed, 
+                  r: 12, // Больше обычных лазеров
+                  color: '#8e44ad', // Фиолетовый цвет для отличия
+                  isMiniMeteor: true 
+                });
+                boss.miniMeteorsAlive++;
+              }
+              boss.attackType = 0; // Следующая будет 1 (веер)
+              boss.shootTimer += 0.5; // Небольшая доп. пауза после метеоритов
             }
           }
         }
@@ -592,14 +402,8 @@
     function updateParticles(dt) {
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
-
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.life -= dt;
-
-        if (p.life <= 0) {
-          particles.splice(i, 1);
-        }
+        p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+        if (p.life <= 0) particles.splice(i, 1);
       }
     }
 
@@ -612,42 +416,22 @@
           if (!(b.pierce && b.hitBoss)) {
             boss.hp -= b.dmg;
             addParticles(b.x, b.y, b.color, 4);
-
-            if (b.pierce) {
-              b.hitBoss = true;
-            } else {
-              bullets.splice(i, 1);
-              removed = true;
-            }
-
-            if (boss && boss.hp <= 0) {
-              killBoss();
-            }
+            if (b.pierce) b.hitBoss = true;
+            else { bullets.splice(i, 1); removed = true; }
+            if (boss && boss.hp <= 0) killBoss();
           }
         }
-
         if (removed) continue;
 
         for (let j = asteroids.length - 1; j >= 0; j--) {
           const a = asteroids[j];
-
           if (b.hit.includes(a.id)) continue;
-
           if (dist(b, a) < b.r + a.r) {
             a.hp -= b.dmg;
             addParticles(b.x, b.y, a.color, 5);
-
-            if (b.pierce) {
-              b.hit.push(a.id);
-            } else {
-              bullets.splice(i, 1);
-              removed = true;
-            }
-
-            if (a.hp <= 0) {
-              destroyAsteroid(j);
-            }
-
+            if (b.pierce) b.hit.push(a.id);
+            else { bullets.splice(i, 1); removed = true; }
+            if (a.hp <= 0) destroyAsteroid(j);
             if (!b.pierce) break;
           }
         }
@@ -655,52 +439,32 @@
 
       for (let i = enemyLasers.length - 1; i >= 0; i--) {
         const l = enemyLasers[i];
-
-        if (dist(l, player) < l.r + player.r) {
-          enemyLasers.splice(i, 1);
-          hitPlayer();
+        if (dist(l, player) < l.r + player.r) { 
+          // Если это мини-метеорит босса, уменьшаем счётчик при попадании
+          if (l.isMiniMeteor && boss) boss.miniMeteorsAlive--;
+          enemyLasers.splice(i, 1); 
+          hitPlayer(); 
         }
       }
 
       for (let i = asteroids.length - 1; i >= 0; i--) {
         const a = asteroids[i];
-
-        if (dist(a, player) < a.r + player.r) {
-          destroyAsteroid(i);
-          hitPlayer();
-        }
+        if (dist(a, player) < a.r + player.r) { destroyAsteroid(i); hitPlayer(); }
       }
 
       for (let i = orbs.length - 1; i >= 0; i--) {
         const o = orbs[i];
-
-        if (dist(o, player) < o.r + player.r + 5) {
-          applyOrb(o);
-          orbs.splice(i, 1);
-        }
+        if (dist(o, player) < o.r + player.r + 5) { applyOrb(o); orbs.splice(i, 1); }
       }
 
-      if (boss && dist(boss, player) < boss.r + player.r) {
-        hitPlayer();
-      }
+      if (boss && dist(boss, player) < boss.r + player.r) hitPlayer();
     }
 
+    // --- ФУНКЦИИ ОТРИСОВКИ (БЕЗ ИЗМЕНЕНИЙ) ---
     function draw() {
       ctx.clearRect(0, 0, W, H);
-
-      drawStars();
-      drawOrbs();
-      drawAsteroids();
-      drawBoss();
-      drawBullets();
-      drawEnemyLasers();
-      drawPlayer();
-      drawParticles();
-      drawUI();
-
-      if (gameOver) {
-        drawGameOver();
-      }
+      drawStars(); drawOrbs(); drawAsteroids(); drawBoss(); drawBullets(); drawEnemyLasers(); drawPlayer(); drawParticles(); drawUI();
+      if (gameOver) drawGameOver();
     }
 
     function drawStars() {
@@ -712,151 +476,69 @@
 
     function drawPlayer() {
       if (gameOver) return;
-
-      ctx.save();
-      ctx.translate(player.x, player.y);
-
-      if (player.invuln > 0 && Math.floor(time * 20) % 2 === 0) {
-        ctx.globalAlpha = 0.45;
-      }
-
-      if (player.laserTime > 0) {
-        ctx.shadowColor = '#67f6ff';
-        ctx.shadowBlur = 18;
-      }
-
-      ctx.fillStyle = '#dbe8ff';
-      ctx.beginPath();
-      ctx.moveTo(20, 0);
-      ctx.lineTo(-15, -12);
-      ctx.lineTo(-8, 0);
-      ctx.lineTo(-15, 12);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.strokeStyle = '#8fb7ff';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      ctx.shadowBlur = 0;
-
-      if (player.shield > 0) {
-        ctx.strokeStyle = 'rgba(89,183,255,0.85)';
-        ctx.lineWidth = 2 + player.shield;
-        ctx.beginPath();
-        ctx.arc(0, 0, 25, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-
+      ctx.save(); ctx.translate(player.x, player.y);
+      if (player.invuln > 0 && Math.floor(time * 20) % 2 === 0) ctx.globalAlpha = 0.45;
+      if (player.laserTime > 0) { ctx.shadowColor = '#67f6ff'; ctx.shadowBlur = 18; }
+      ctx.fillStyle = '#dbe8ff'; ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(-15, -12); ctx.lineTo(-8, 0); ctx.lineTo(-15, 12); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#8fb7ff'; ctx.lineWidth = 2; ctx.stroke(); ctx.shadowBlur = 0;
+      if (player.shield > 0) { ctx.strokeStyle = 'rgba(89,183,255,0.85)'; ctx.lineWidth = 2 + player.shield; ctx.beginPath(); ctx.arc(0, 0, 25, 0, Math.PI * 2); ctx.stroke(); }
       ctx.restore();
     }
 
     function drawAsteroids() {
       for (const a of asteroids) {
-        ctx.save();
-        ctx.translate(a.x, a.y);
-
-        ctx.fillStyle = a.color;
-        ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-        ctx.lineWidth = 3;
-
-        ctx.beginPath();
-        ctx.arc(0, 0, a.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-
+        ctx.save(); ctx.translate(a.x, a.y);
+        ctx.fillStyle = a.color; ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(0, 0, a.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
         ctx.fillStyle = 'rgba(0,0,0,0.18)';
-
-        ctx.beginPath();
-        ctx.arc(-a.r * 0.25, -a.r * 0.2, a.r * 0.25, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.arc(a.r * 0.2, a.r * 0.22, a.r * 0.16, 0, Math.PI * 2);
-        ctx.fill();
-
-        if (a.type === 'orange') {
-          ctx.fillStyle = 'rgba(255,255,255,0.8)';
-          ctx.fillRect(-a.r - 4, -2, 8, 4);
-          ctx.fillRect(a.r - 4, -2, 8, 4);
-        }
-
-        if (a.type === 'purple') {
-          ctx.fillStyle = 'rgba(255,255,255,0.4)';
-          ctx.beginPath();
-          ctx.arc(0, 0, a.r * 0.35, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
+        ctx.beginPath(); ctx.arc(-a.r * 0.25, -a.r * 0.2, a.r * 0.25, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(a.r * 0.2, a.r * 0.22, a.r * 0.16, 0, Math.PI * 2); ctx.fill();
+        if (a.type === 'orange') { ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.fillRect(-a.r - 4, -2, 8, 4); ctx.fillRect(a.r - 4, -2, 8, 4); }
+        if (a.type === 'purple') { ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.beginPath(); ctx.arc(0, 0, a.r * 0.35, 0, Math.PI * 2); ctx.fill(); }
         ctx.restore();
       }
     }
 
     function drawBoss() {
       if (!boss) return;
-
-      ctx.save();
-      ctx.translate(boss.x, boss.y);
-
+      ctx.save(); ctx.translate(boss.x, boss.y);
       const pulse = 1 + Math.sin((time * 6) % 100) * 0.03;
-
-      ctx.fillStyle = '#471328';
-      ctx.beginPath();
-      ctx.arc(0, 0, boss.r * pulse, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.strokeStyle = '#ff3b6b';
-      ctx.lineWidth = 5;
-      ctx.stroke();
-
-      ctx.fillStyle = '#ff3b6b';
-      ctx.beginPath();
-      ctx.arc(0, 0, boss.r * 0.42, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = 'rgba(255,255,255,0.28)';
-      ctx.beginPath();
-      ctx.arc(-15, -15, boss.r * 0.18, 0, Math.PI * 2);
-      ctx.fill();
-
+      ctx.fillStyle = '#471328'; ctx.beginPath(); ctx.arc(0, 0, boss.r * pulse, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#ff3b6b'; ctx.lineWidth = 5; ctx.stroke();
+      ctx.fillStyle = '#ff3b6b'; ctx.beginPath(); ctx.arc(0, 0, boss.r * 0.42, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.beginPath(); ctx.arc(-15, -15, boss.r * 0.18, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
 
     function drawBullets() {
       for (const b of bullets) {
-        ctx.save();
-        ctx.translate(b.x, b.y);
-
-        ctx.fillStyle = b.color;
-        ctx.shadowColor = b.color;
-        ctx.shadowBlur = 10;
-
-        if (b.pierce) {
-          ctx.rotate(Math.atan2(b.vy, b.vx));
-          ctx.fillRect(-12, -2, 24, 4);
-        } else {
-          ctx.beginPath();
-          ctx.arc(0, 0, b.r, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
+        ctx.save(); ctx.translate(b.x, b.y);
+        ctx.fillStyle = b.color; ctx.shadowColor = b.color; ctx.shadowBlur = 10;
+        if (b.pierce) { ctx.rotate(Math.atan2(b.vy, b.vx)); ctx.fillRect(-12, -2, 24, 4); }
+        else { ctx.beginPath(); ctx.arc(0, 0, b.r, 0, Math.PI * 2); ctx.fill(); }
         ctx.restore();
       }
     }
 
     function drawEnemyLasers() {
       for (const l of enemyLasers) {
-        ctx.save();
-        ctx.translate(l.x, l.y);
-
+        ctx.save(); ctx.translate(l.x, l.y);
         ctx.rotate(Math.atan2(l.vy, l.vx));
-
-        ctx.fillStyle = l.color;
-        ctx.shadowColor = l.color;
-        ctx.shadowBlur = 10;
-
-        ctx.fillRect(-12, -2, 24, 4);
-
+        ctx.fillStyle = l.color; ctx.shadowColor = l.color; ctx.shadowBlur = 10;
+        
+        // Мини-метеориты рисуем как круги, обычные лазеры как линии
+        if (l.isMiniMeteor) {
+          ctx.beginPath();
+          ctx.arc(0, 0, l.r, 0, Math.PI * 2);
+          ctx.fill();
+          // Добавим ядро
+          ctx.fillStyle = '#d2b4de';
+          ctx.beginPath();
+          ctx.arc(0, 0, l.r * 0.5, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillRect(-12, -2, 24, 4);
+        }
         ctx.restore();
       }
     }
@@ -864,30 +546,12 @@
     function drawOrbs() {
       for (const o of orbs) {
         const st = orbStyles[o.type];
-
-        ctx.save();
-        ctx.translate(o.x, o.y);
-
-        ctx.shadowColor = st.color;
-        ctx.shadowBlur = 15;
-
-        ctx.fillStyle = 'rgba(7,10,18,0.85)';
-        ctx.beginPath();
-        ctx.arc(0, 0, o.r, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.strokeStyle = st.color;
-        ctx.lineWidth = 3;
-        ctx.stroke();
-
-        ctx.shadowBlur = 0;
-
-        ctx.fillStyle = st.color;
-        ctx.font = '12px monospace';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+        ctx.save(); ctx.translate(o.x, o.y);
+        ctx.shadowColor = st.color; ctx.shadowBlur = 15;
+        ctx.fillStyle = 'rgba(7,10,18,0.85)'; ctx.beginPath(); ctx.arc(0, 0, o.r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = st.color; ctx.lineWidth = 3; ctx.stroke(); ctx.shadowBlur = 0;
+        ctx.fillStyle = st.color; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(st.label, 0, 1);
-
         ctx.restore();
       }
     }
@@ -895,100 +559,55 @@
     function drawParticles() {
       for (const p of particles) {
         ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
-        ctx.fillStyle = p.color;
-
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
       }
-
       ctx.globalAlpha = 1;
     }
 
     function drawUI() {
-      ctx.fillStyle = '#eaf2ff';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'alphabetic';
-
+      ctx.fillStyle = '#eaf2ff'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
       ctx.font = '18px monospace';
-      ctx.fillText(`Счёт: ${Math.floor(score)}`, 14, 28);
-      ctx.fillText(`До босса: ${Math.max(0, Math.ceil(nextBossScore - score))}`, 14, 52);
-
-      ctx.font = '14px monospace';
-
-      ctx.fillText(
-        `Щиты: ${player.shield}   Лазер: ${Math.ceil(player.laserTime)}с   Тройной: ${Math.ceil(player.tripleTime)}с   Замедление: ${player.slowCharges} [E/Shift]`,
-        14,
-        H - 14
-      );
-
-      ctx.fillText('WASD/стрелки — движение, Пробел — огонь', 14, H - 34);
-
-      if (player.slowActive > 0) {
-        ctx.fillStyle = '#ffd166';
-        ctx.fillText(`Замедление времени: ${player.slowActive.toFixed(1)}с`, 14, 76);
+      
+      // Показываем разный текст в зависимости от наличия босса
+      if (boss) {
+        ctx.fillText(`Счёт: ${Math.floor(score)} (БОСС!)`, 14, 28);
+      } else {
+        ctx.fillText(`Счёт: ${Math.floor(score)}`, 14, 28);
+        ctx.fillText(`До босса: ${Math.max(0, Math.ceil(nextBossScore - score))}`, 14, 52);
       }
 
+      ctx.font = '14px monospace';
+      ctx.fillText(`Щиты: ${player.shield}   Лазер: ${Math.ceil(player.laserTime)}с   Тройной: ${Math.ceil(player.tripleTime)}с   Замедление: ${player.slowCharges} [E/Shift]`, 14, H - 14);
+      ctx.fillText('WASD/стрелки — движение, Пробел — огонь', 14, H - 34);
+      if (player.slowActive > 0) { ctx.fillStyle = '#ffd166'; ctx.fillText(`Замедление времени: ${player.slowActive.toFixed(1)}с`, 14, 76); }
+      
       if (boss) {
-        const w = 360;
-        const x = (W - w) / 2;
-        const y = 14;
-
-        ctx.fillStyle = 'rgba(0,0,0,0.45)';
-        ctx.fillRect(x, y, w, 18);
-
-        ctx.fillStyle = '#ff3b6b';
-        ctx.fillRect(
-          x + 2,
-          y + 2,
-          (w - 4) * clamp(boss.hp / boss.maxHp, 0, 1),
-          14
-        );
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '13px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(
-          `Босс ${bossNumber} — ${Math.max(0, boss.hp)}/${boss.maxHp}`,
-          W / 2,
-          y + 13
-        );
-
+        const w = 360, x = (W - w) / 2, y = 14;
+        ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(x, y, w, 18);
+        ctx.fillStyle = '#ff3b6b'; ctx.fillRect(x + 2, y + 2, (w - 4) * clamp(boss.hp / boss.maxHp, 0, 1), 14);
+        ctx.fillStyle = '#ffffff'; ctx.font = '13px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(`Босс ${bossNumber} — ${Math.max(0, boss.hp)}/${boss.maxHp}`, W / 2, y + 13);
         ctx.textAlign = 'left';
       }
     }
 
     function drawGameOver() {
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillRect(0, 0, W, H);
-
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-
-      ctx.font = '42px monospace';
-      ctx.fillText('ИГРА ОКОНЧЕНА', W / 2, H / 2 - 40);
-
-      ctx.font = '24px monospace';
-      ctx.fillText(`Счёт: ${Math.floor(score)}`, W / 2, H / 2 + 5);
-
-      ctx.font = '18px monospace';
-      ctx.fillText('Нажми R, чтобы начать заново', W / 2, H / 2 + 45);
-
+      ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center';
+      ctx.font = '42px monospace'; ctx.fillText('ИГРА ОКОНЧЕНА', W / 2, H / 2 - 40);
+      ctx.font = '24px monospace'; ctx.fillText(`Счёт: ${Math.floor(score)}`, W / 2, H / 2 + 5);
+      ctx.font = '18px monospace'; ctx.fillText('Нажми R, чтобы начать заново', W / 2, H / 2 + 45);
       ctx.textAlign = 'left';
     }
 
     let last = performance.now();
-
     function loop(t) {
       const dt = Math.min(0.033, (t - last) / 1000);
       last = t;
-
       update(dt);
       draw();
-
       requestAnimationFrame(loop);
     }
-
     requestAnimationFrame(loop);
   </script>
 </body>
