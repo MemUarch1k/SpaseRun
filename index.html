@@ -20,6 +20,7 @@
       border: 1px solid #27406d;
       box-shadow: 0 0 35px rgba(70, 130, 255, 0.18);
       cursor: crosshair;
+      touch-action: none;
     }
   </style>
 </head>
@@ -32,61 +33,149 @@
     const W = canvas.width;
     const H = canvas.height;
 
-    let gameState = 'menu'; // menu, settings, playing, gameover
+    let gameState = 'menu'; // menu, settings, records, playing, gameover, upgrade
     let mouseX = 0;
     let mouseY = 0;
     let clicked = false;
 
-    let settings = {
-      difficulty: 1, // 0: легко, 1: нормально, 2: сложно
+    function lerp(a, b, t) {
+      return a + (b - a) * t;
+    }
+
+    function clamp(v, min, max) {
+      return Math.max(min, Math.min(max, v));
+    }
+
+    function rand(a, b) {
+      return a + Math.random() * (b - a);
+    }
+
+    function dist(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function formatTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return `${m}:${s.toString().padStart(2, '0')}`;
+    }
+
+    // --- SETTINGS / SAVE ---
+
+    const defaultSettings = {
+      difficulty: 1, // 0 easy, 1 normal, 2 hard, 3 custom
       masterVol: 1.0,
       sfxShoot: 0.5,
       sfxExplosion: 0.5,
       sfxBoss: 0.5,
-      sfxUI: 0.5
+      sfxUI: 0.5,
+      custom: {
+        score: 0.35,
+        spawn: 0.5,
+        speed: 0.5,
+        bossHp: 0.5,
+        bossCd: 0.5,
+        orb: 0.5,
+        maxAst: 0.45
+      }
     };
 
-    function loadSettings() {
-      const saved = localStorage.getItem('spaceGameSettings');
-      if (saved) {
-        try {
-          Object.assign(settings, JSON.parse(saved));
-        } catch (e) {}
-      }
+    let settings = JSON.parse(JSON.stringify(defaultSettings));
+
+    const defaultStats = {
+      bestScore: 0,
+      maxCombo: 0,
+      bossesKilled: 0,
+      asteroidsDestroyed: 0,
+      totalTime: 0,
+      totalCoins: 0,
+      runs: 0
+    };
+
+    let stats = JSON.parse(JSON.stringify(defaultStats));
+
+    const defaultWallet = {
+      coins: 0
+    };
+
+    let wallet = JSON.parse(JSON.stringify(defaultWallet));
+
+    function loadAll() {
+      try {
+        const savedSettings = localStorage.getItem('spaceGameSettings');
+        if (savedSettings) {
+          const p = JSON.parse(savedSettings);
+          Object.assign(settings, p);
+          if (p.custom) Object.assign(settings.custom, p.custom);
+        }
+
+        const savedStats = localStorage.getItem('spaceGameStats');
+        if (savedStats) Object.assign(stats, JSON.parse(savedStats));
+
+        const savedWallet = localStorage.getItem('spaceGameWallet');
+        if (savedWallet) Object.assign(wallet, JSON.parse(savedWallet));
+      } catch (e) {}
     }
 
-    function saveSettings() {
+    function saveAll() {
       localStorage.setItem('spaceGameSettings', JSON.stringify(settings));
+      localStorage.setItem('spaceGameStats', JSON.stringify(stats));
+      localStorage.setItem('spaceGameWallet', JSON.stringify(wallet));
     }
 
-    loadSettings();
+    loadAll();
 
     const DIFFICULTY_PRESETS = [
       {
         name: 'Легко',
-        scoreRate: 250,
-        spawnMult: 1.4,
+        scoreRate: 60,
+        spawnMult: 1.5,
         speedMult: 0.7,
         bossHpMult: 0.7,
-        bossCdMult: 1.5
+        bossCdMult: 1.5,
+        orbMult: 1.4,
+        maxAsteroids: 16
       },
       {
         name: 'Нормально',
-        scoreRate: 500,
+        scoreRate: 100,
         spawnMult: 1.0,
         speedMult: 1.0,
         bossHpMult: 1.0,
-        bossCdMult: 1.0
+        bossCdMult: 1.0,
+        orbMult: 1.0,
+        maxAsteroids: 22
       },
       {
         name: 'Сложно',
-        scoreRate: 750,
-        spawnMult: 0.6,
+        scoreRate: 160,
+        spawnMult: 0.65,
         speedMult: 1.3,
         bossHpMult: 1.5,
-        bossCdMult: 0.7
+        bossCdMult: 0.7,
+        orbMult: 0.8,
+        maxAsteroids: 30
       }
     ];
+
+    function getDifficulty() {
+      if (settings.difficulty !== 3) {
+        return DIFFICULTY_PRESETS[settings.difficulty];
+      }
+
+      const c = settings.custom;
+
+      return {
+        name: 'Кастом',
+        scoreRate: Math.round(lerp(20, 250, c.score)),
+        spawnMult: lerp(2.0, 0.3, c.spawn),
+        speedMult: lerp(0.5, 2.0, c.speed),
+        bossHpMult: lerp(0.5, 2.5, c.bossHp),
+        bossCdMult: lerp(1.8, 0.4, c.bossCd),
+        orbMult: lerp(0.5, 2.5, c.orb),
+        maxAsteroids: Math.round(lerp(8, 40, c.maxAst))
+      };
+    }
 
     const BOSS_EVERY = 10000;
 
@@ -217,71 +306,81 @@
 
       switch (name) {
         case 'shoot':
-          playTone({ freq: 650, endFreq: 950, duration: 0.05, type: 'triangle', volume: 0.4, category: 'shoot' });
+          playTone({ freq: 650, endFreq: 950, duration: 0.05, type: 'triangle', volume: 0.35, category: 'shoot' });
           break;
 
         case 'playerLaser':
-          playTone({ freq: 1100, endFreq: 320, duration: 0.08, type: 'sawtooth', volume: 0.3, category: 'shoot' });
+          playTone({ freq: 1100, endFreq: 320, duration: 0.08, type: 'sawtooth', volume: 0.28, category: 'shoot' });
           break;
 
         case 'enemyShoot':
-          playTone({ freq: 230, endFreq: 80, duration: 0.08, type: 'square', volume: 0.2, category: 'shoot' });
+          playTone({ freq: 230, endFreq: 80, duration: 0.08, type: 'square', volume: 0.18, category: 'shoot' });
           break;
 
         case 'bossLaser':
-          playTone({ freq: 170, endFreq: 55, duration: 0.14, type: 'sawtooth', volume: 0.5, category: 'boss' });
+          playTone({ freq: 170, endFreq: 55, duration: 0.14, type: 'sawtooth', volume: 0.45, category: 'boss' });
           break;
 
         case 'explosion':
-          playNoise({ duration: 0.16, volume: 0.4, lowpass: 800, category: 'explosion' });
+          playNoise({ duration: 0.16, volume: 0.35, lowpass: 800, category: 'explosion' });
+          break;
+
+        case 'bomb':
+          playNoise({ duration: 0.5, volume: 0.7, lowpass: 300, category: 'explosion' });
+          playTone({ freq: 120, endFreq: 25, duration: 0.5, type: 'sawtooth', volume: 0.4, category: 'explosion' });
           break;
 
         case 'bossSpawn':
-          playTone({ freq: 55, endFreq: 220, duration: 0.7, type: 'sawtooth', volume: 0.6, category: 'boss' });
-          playNoise({ duration: 0.35, volume: 0.3, lowpass: 220, category: 'boss' });
+          playTone({ freq: 55, endFreq: 220, duration: 0.7, type: 'sawtooth', volume: 0.5, category: 'boss' });
+          playNoise({ duration: 0.35, volume: 0.25, lowpass: 220, category: 'boss' });
           break;
 
         case 'bossDeath':
-          playNoise({ duration: 0.6, volume: 0.8, lowpass: 260, category: 'boss' });
-          playTone({ freq: 170, endFreq: 25, duration: 0.65, type: 'sawtooth', volume: 0.6, category: 'boss' });
+          playNoise({ duration: 0.6, volume: 0.7, lowpass: 260, category: 'boss' });
+          playTone({ freq: 170, endFreq: 25, duration: 0.65, type: 'sawtooth', volume: 0.5, category: 'boss' });
           break;
 
         case 'orb':
-          playTone({ freq: 520, endFreq: 760, duration: 0.08, type: 'sine', volume: 0.5, category: 'ui' });
-          playTone({ freq: 820, endFreq: 1150, duration: 0.1, type: 'sine', volume: 0.4, delay: 0.07, category: 'ui' });
+          playTone({ freq: 520, endFreq: 760, duration: 0.08, type: 'sine', volume: 0.4, category: 'ui' });
+          playTone({ freq: 820, endFreq: 1150, duration: 0.1, type: 'sine', volume: 0.3, delay: 0.07, category: 'ui' });
           break;
 
         case 'slow':
-          playTone({ freq: 650, endFreq: 130, duration: 0.35, type: 'sine', volume: 0.5, category: 'ui' });
+          playTone({ freq: 650, endFreq: 130, duration: 0.35, type: 'sine', volume: 0.4, category: 'ui' });
           break;
 
         case 'dash':
-          playTone({ freq: 300, endFreq: 800, duration: 0.15, type: 'square', volume: 0.4, category: 'ui' });
+          playTone({ freq: 300, endFreq: 800, duration: 0.15, type: 'square', volume: 0.35, category: 'ui' });
           break;
 
         case 'shieldHit':
-          playTone({ freq: 330, endFreq: 110, duration: 0.18, type: 'square', volume: 0.5, category: 'ui' });
+          playTone({ freq: 330, endFreq: 110, duration: 0.18, type: 'square', volume: 0.4, category: 'ui' });
           break;
 
         case 'playerDeath':
-          playNoise({ duration: 0.7, volume: 0.9, lowpass: 220, category: 'explosion' });
-          playTone({ freq: 220, endFreq: 25, duration: 0.7, type: 'sawtooth', volume: 0.6, category: 'explosion' });
+          playNoise({ duration: 0.7, volume: 0.8, lowpass: 220, category: 'explosion' });
+          playTone({ freq: 220, endFreq: 25, duration: 0.7, type: 'sawtooth', volume: 0.5, category: 'explosion' });
           break;
 
         case 'meteorCharge':
-          playTone({ freq: 140, endFreq: 820, duration: 0.75, type: 'sine', volume: 0.5, category: 'boss' });
+          playTone({ freq: 140, endFreq: 820, duration: 0.75, type: 'sine', volume: 0.4, category: 'boss' });
           break;
 
         case 'meteorLaunch':
-          playTone({ freq: 480, endFreq: 90, duration: 0.18, type: 'square', volume: 0.4, category: 'boss' });
+          playTone({ freq: 480, endFreq: 90, duration: 0.18, type: 'square', volume: 0.35, category: 'boss' });
           break;
 
         case 'warning':
-          playTone({ freq: 800, endFreq: 200, duration: 0.3, type: 'sawtooth', volume: 0.6, category: 'boss' });
+          playTone({ freq: 800, endFreq: 200, duration: 0.3, type: 'sawtooth', volume: 0.5, category: 'boss' });
           break;
 
         case 'click':
-          playTone({ freq: 600, endFreq: 800, duration: 0.05, type: 'sine', volume: 0.3, category: 'ui' });
+          playTone({ freq: 600, endFreq: 800, duration: 0.05, type: 'sine', volume: 0.25, category: 'ui' });
+          break;
+
+        case 'upgrade':
+          playTone({ freq: 400, endFreq: 700, duration: 0.09, type: 'triangle', volume: 0.35, category: 'ui' });
+          playTone({ freq: 700, endFreq: 1100, duration: 0.12, type: 'triangle', volume: 0.3, delay: 0.08, category: 'ui' });
           break;
 
         default:
@@ -317,6 +416,9 @@
     let warningTimer;
     let maxCombo;
 
+    let runStats;
+    let upgradeChoices = [];
+
     function makeStars() {
       stars = [];
 
@@ -332,25 +434,26 @@
 
     makeStars();
 
-    function rand(a, b) {
-      return a + Math.random() * (b - a);
-    }
-
-    function dist(a, b) {
-      return Math.hypot(a.x - b.x, a.y - b.y);
-    }
-
-    function clamp(v, min, max) {
-      return Math.max(min, Math.min(max, v));
-    }
-
     const orbStyles = {
       shield: { color: '#59b7ff', label: 'Щ' },
       laser: { color: '#43ffd8', label: 'Л' },
       slow: { color: '#ffd166', label: 'З' },
       triple: { color: '#ff7ad9', label: 'Т' },
-      dash: { color: '#ffffff', label: 'Р' }
+      dash: { color: '#ffffff', label: 'Р' },
+      magnet: { color: '#2ecc71', label: 'М' },
+      bomb: { color: '#ff5555', label: 'Б' },
+      drone: { color: '#9b59b6', label: 'Д' }
     };
+
+    function resetRunStats() {
+      runStats = {
+        asteroids: 0,
+        bosses: 0,
+        coins: 0,
+        time: 0,
+        maxCombo: 1
+      };
+    }
 
     function reset() {
       player = {
@@ -365,10 +468,25 @@
         slowCharges: 1,
         slowActive: 0,
         invuln: 0,
+
         dashCharges: 0,
         dashTimer: 0,
         lastDx: 1,
-        lastDy: 0
+        lastDy: 0,
+
+        bombs: 0,
+
+        droneTime: 0,
+        droneCooldown: 0,
+        droneAngle: 0,
+
+        magnetTime: 0,
+        magnetRadius: 180,
+
+        damageBonus: 0,
+        fireRateMult: 1.0,
+        comboDuration: 3.0,
+        coinMult: 1.0
       };
 
       bullets = [];
@@ -392,9 +510,19 @@
       screenShake = 0;
       warningTimer = 0;
       maxCombo = 1;
+
+      upgradeChoices = [];
+
+      resetRunStats();
     }
 
     reset();
+
+    function addCoins(baseAmount) {
+      const amount = Math.max(1, Math.round(baseAmount * player.coinMult));
+      wallet.coins += amount;
+      runStats.coins += amount;
+    }
 
     // --- INPUT ---
 
@@ -414,7 +542,7 @@
       keys[e.code] = true;
 
       if (e.code === 'Escape') {
-        if (gameState !== 'menu') {
+        if (gameState !== 'menu' && gameState !== 'upgrade') {
           gameState = 'menu';
           screenShake = 0;
         }
@@ -442,6 +570,10 @@
       if (e.code === 'KeyQ') {
         activateDash();
       }
+
+      if (e.code === 'KeyB') {
+        useBomb();
+      }
     });
 
     window.addEventListener('keyup', (e) => {
@@ -458,6 +590,124 @@
       ensureAudio();
       clicked = true;
     });
+
+    // --- TOUCH / MOBILE ---
+
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+    const touchJoy = {
+      id: null,
+      baseX: 130,
+      baseY: H - 130,
+      x: 130,
+      y: H - 130
+    };
+
+    let touchFireId = null;
+
+    const touchButtons = [
+      { id: 'fire', x: W - 95, y: H - 105, r: 55, label: 'ОГОНЬ' },
+      { id: 'bomb', x: W - 190, y: H - 70, r: 32, label: 'БОМБА' },
+      { id: 'dash', x: W - 190, y: H - 160, r: 32, label: 'РЫВ' },
+      { id: 'slow', x: W - 95, y: H - 210, r: 32, label: 'ВРЕМЯ' }
+    ];
+
+    function getTouchPos(touch) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (touch.clientX - rect.left) * (W / rect.width),
+        y: (touch.clientY - rect.top) * (H / rect.height)
+      };
+    }
+
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      ensureAudio();
+
+      for (const touch of e.changedTouches) {
+        const p = getTouchPos(touch);
+
+        mouseX = p.x;
+        mouseY = p.y;
+
+        if (gameState !== 'playing') {
+          clicked = true;
+          continue;
+        }
+
+        const btn = touchButtons.find((b) => Math.hypot(p.x - b.x, p.y - b.y) < b.r);
+
+        if (btn) {
+          if (btn.id === 'fire') {
+            touchFireId = touch.identifier;
+          }
+
+          if (btn.id === 'bomb') {
+            useBomb();
+          }
+
+          if (btn.id === 'dash') {
+            activateDash();
+          }
+
+          if (btn.id === 'slow') {
+            activateSlow();
+          }
+
+          continue;
+        }
+
+        if (p.x < W * 0.45 && touchJoy.id === null) {
+          touchJoy.id = touch.identifier;
+          touchJoy.baseX = p.x;
+          touchJoy.baseY = p.y;
+          touchJoy.x = p.x;
+          touchJoy.y = p.y;
+        } else if (p.x >= W * 0.45) {
+          touchFireId = touch.identifier;
+        }
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+
+      for (const touch of e.changedTouches) {
+        if (touch.identifier === touchJoy.id) {
+          const p = getTouchPos(touch);
+          touchJoy.x = p.x;
+          touchJoy.y = p.y;
+        }
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (e) => {
+      e.preventDefault();
+
+      for (const touch of e.changedTouches) {
+        if (touch.identifier === touchJoy.id) {
+          touchJoy.id = null;
+        }
+
+        if (touch.identifier === touchFireId) {
+          touchFireId = null;
+        }
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchcancel', (e) => {
+      e.preventDefault();
+
+      for (const touch of e.changedTouches) {
+        if (touch.identifier === touchJoy.id) {
+          touchJoy.id = null;
+        }
+
+        if (touch.identifier === touchFireId) {
+          touchFireId = null;
+        }
+      }
+    }, { passive: false });
 
     // --- ABILITIES ---
 
@@ -488,18 +738,49 @@
       }
     }
 
+    function useBomb() {
+      if (gameState !== 'playing' || gameOver || player.bombs <= 0) return;
+
+      player.bombs--;
+      screenShake = 0.9;
+      addParticles(player.x, player.y, '#ff5555', 80);
+      playSound('bomb');
+
+      let guard = 0;
+
+      while (asteroids.length > 0 && guard < 300) {
+        destroyAsteroid(asteroids.length - 1);
+        guard++;
+      }
+
+      enemyLasers.length = 0;
+
+      if (boss) {
+        boss.hp -= 5;
+        boss.miniMeteorsAlive = 0;
+
+        if (boss.hp <= 0) {
+          killBoss();
+        }
+      }
+    }
+
     // --- SPAWN ---
 
     function spawnAsteroid() {
-      const diff = DIFFICULTY_PRESETS[settings.difficulty];
+      const diff = getDifficulty();
+
+      if (asteroids.length >= diff.maxAsteroids) return;
 
       let type = 'red';
       const roll = Math.random();
 
-      if (score > 3000 && roll < 0.12) type = 'blue';
-      else if (score > 2000 && roll < 0.25) type = 'yellow';
-      else if (score > 1500 && roll < 0.35) type = 'orange';
-      else if (score > 500 && roll < 0.55) type = 'purple';
+      if (score > 6000 && roll < 0.10) type = 'armor';
+      else if (score > 4000 && roll < 0.20) type = 'green';
+      else if (score > 3000 && roll < 0.30) type = 'blue';
+      else if (score > 2000 && roll < 0.43) type = 'yellow';
+      else if (score > 1500 && roll < 0.55) type = 'orange';
+      else if (score > 500 && roll < 0.72) type = 'purple';
 
       const baseSpeed = rand(60, 150) * diff.speedMult;
 
@@ -561,6 +842,22 @@
         a.zigTimer = 0.4;
       }
 
+      if (type === 'green') {
+        a.r = rand(20, 30);
+        a.hp = 2;
+        a.vx = -rand(50, 90) * diff.speedMult;
+        a.color = '#2ecc71';
+        a.score = 45;
+      }
+
+      if (type === 'armor') {
+        a.r = rand(26, 38);
+        a.hp = 12;
+        a.vx = -rand(25, 55) * diff.speedMult;
+        a.color = '#95a5a6';
+        a.score = 80;
+      }
+
       asteroids.push(a);
     }
 
@@ -568,11 +865,14 @@
       if (!type) {
         const r = Math.random();
 
-        if (r < 0.25) type = 'shield';
-        else if (r < 0.45) type = 'laser';
-        else if (r < 0.65) type = 'slow';
-        else if (r < 0.85) type = 'triple';
-        else type = 'dash';
+        if (r < 0.18) type = 'shield';
+        else if (r < 0.36) type = 'laser';
+        else if (r < 0.50) type = 'slow';
+        else if (r < 0.64) type = 'triple';
+        else if (r < 0.76) type = 'dash';
+        else if (r < 0.86) type = 'magnet';
+        else if (r < 0.93) type = 'bomb';
+        else type = 'drone';
       }
 
       orbs.push({
@@ -588,10 +888,10 @@
     function shoot() {
       const laser = player.laserTime > 0;
 
-      player.cooldown = laser ? 0.09 : 0.17;
+      player.cooldown = (laser ? 0.09 : 0.17) * player.fireRateMult;
 
       const speed = laser ? 780 : 580;
-      const dmg = laser ? 5 : 1;
+      const dmg = (laser ? 5 : 1) + player.damageBonus;
       const r = laser ? 6 : 3;
       const color = laser ? '#67f6ff' : '#ffe08a';
 
@@ -622,7 +922,7 @@
     function spawnBoss() {
       bossNumber++;
 
-      const diff = DIFFICULTY_PRESETS[settings.difficulty];
+      const diff = getDifficulty();
 
       const baseHp =
         bossNumber === 1
@@ -644,7 +944,8 @@
         state: 'fight',
         miniMeteorsAlive: 0,
         warningTimer: 0,
-        nextAttack: null
+        nextAttack: null,
+        phaseNumber: 1
       };
 
       nextBossScore = score + BOSS_EVERY;
@@ -662,14 +963,13 @@
       addParticles(boss.x, boss.y, '#ff7aa2', 90);
 
       score += 2000 * bossNumber * combo;
+      addCoins(10);
+
+      runStats.bosses++;
 
       nextBossScore = score + BOSS_EVERY;
 
       spawnTimer = 0.25;
-
-      for (let i = 0; i < 3; i++) {
-        spawnAsteroid();
-      }
 
       enemyLasers.length = 0;
       boss = null;
@@ -677,21 +977,32 @@
       playSound('bossDeath');
 
       screenShake = 1.0;
+
+      saveAll();
+
+      openUpgradeScreen();
     }
 
     function destroyAsteroid(index) {
       const a = asteroids[index];
+      if (!a) return;
+
+      asteroids.splice(index, 1);
 
       score += a.score * combo;
 
       combo = Math.min(10, combo + 1);
-      comboTimer = 3.0;
+      comboTimer = player.comboDuration;
 
-      if (combo > maxCombo) {
-        maxCombo = combo;
-      }
+      if (combo > maxCombo) maxCombo = combo;
+      if (combo > runStats.maxCombo) runStats.maxCombo = combo;
 
       addParticles(a.x, a.y, a.color, 20);
+
+      if (a.type !== 'shard') {
+        runStats.asteroids++;
+        addCoins(1);
+      }
 
       if (Math.random() < 0.08) {
         spawnOrb(a.x, a.y);
@@ -719,17 +1030,43 @@
         }
       }
 
-      asteroids.splice(index, 1);
+      if (a.type === 'green') {
+        greenExplosion(a.x, a.y, 120, 3, a.id);
+      }
 
       playSound('explosion');
     }
 
+    function greenExplosion(x, y, radius, dmg, sourceId) {
+      addParticles(x, y, '#2ecc71', 40);
+
+      for (let i = asteroids.length - 1; i >= 0; i--) {
+        const c = asteroids[i];
+
+        if (c.id === sourceId) continue;
+
+        const d = Math.hypot(c.x - x, c.y - y);
+
+        if (d < radius + c.r) {
+          c.hp -= dmg;
+          addParticles(c.x, c.y, '#a3ffcf', 6);
+
+          if (c.hp <= 0) {
+            destroyAsteroid(i);
+          }
+        }
+      }
+    }
+
     function applyOrb(o) {
-      if (o.type === 'shield') player.shield = Math.min(3, player.shield + 1);
+      if (o.type === 'shield') player.shield = Math.min(5, player.shield + 1);
       if (o.type === 'laser') player.laserTime = 7;
-      if (o.type === 'slow') player.slowCharges = Math.min(3, player.slowCharges + 1);
+      if (o.type === 'slow') player.slowCharges = Math.min(5, player.slowCharges + 1);
       if (o.type === 'triple') player.tripleTime = 9;
-      if (o.type === 'dash') player.dashCharges = Math.min(3, player.dashCharges + 2);
+      if (o.type === 'dash') player.dashCharges = Math.min(5, player.dashCharges + 2);
+      if (o.type === 'magnet') player.magnetTime += 12;
+      if (o.type === 'bomb') player.bombs = Math.min(5, player.bombs + 1);
+      if (o.type === 'drone') player.droneTime += 12;
 
       addParticles(player.x, player.y, orbStyles[o.type].color, 25);
 
@@ -754,6 +1091,18 @@
       }
     }
 
+    function onPlayerDeath() {
+      stats.bestScore = Math.max(stats.bestScore, Math.floor(score));
+      stats.maxCombo = Math.max(stats.maxCombo, maxCombo);
+      stats.bossesKilled += runStats.bosses;
+      stats.asteroidsDestroyed += runStats.asteroids;
+      stats.totalTime += runStats.time;
+      stats.totalCoins += runStats.coins;
+      stats.runs++;
+
+      saveAll();
+    }
+
     function hitPlayer() {
       if (player.invuln > 0 || gameOver) return;
 
@@ -771,17 +1120,132 @@
         gameState = 'gameover';
         addParticles(player.x, player.y, '#ffffff', 75);
         playSound('playerDeath');
+        onPlayerDeath();
       }
+    }
+
+    // --- UPGRADES ---
+
+    const UPGRADES = [
+      {
+        title: '+1 Щит',
+        desc: 'Добавляет один щит.',
+        apply: () => {
+          player.shield = Math.min(5, player.shield + 1);
+        }
+      },
+      {
+        title: 'Быстрый огонь',
+        desc: 'Выстрелы становятся быстрее.',
+        apply: () => {
+          player.fireRateMult = Math.max(0.45, player.fireRateMult * 0.9);
+        }
+      },
+      {
+        title: '+1 Урон',
+        desc: 'Пули наносят больше урона.',
+        apply: () => {
+          player.damageBonus += 1;
+        }
+      },
+      {
+        title: 'Магнит',
+        desc: 'Притягивает орбы 20 секунд.',
+        apply: () => {
+          player.magnetTime += 20;
+          player.magnetRadius = Math.min(380, player.magnetRadius + 30);
+        }
+      },
+      {
+        title: 'Дрон',
+        desc: 'Дрон-помощник на 20 секунд.',
+        apply: () => {
+          player.droneTime += 20;
+        }
+      },
+      {
+        title: '+1 Рывок',
+        desc: 'Добавляет заряд рывка.',
+        apply: () => {
+          player.dashCharges = Math.min(5, player.dashCharges + 1);
+        }
+      },
+      {
+        title: '+1 Бомба',
+        desc: 'Добавляет одну бомбу.',
+        apply: () => {
+          player.bombs = Math.min(5, player.bombs + 1);
+        }
+      },
+      {
+        title: 'Комбо+',
+        desc: 'Комбо держится дольше.',
+        apply: () => {
+          player.comboDuration += 1;
+        }
+      },
+      {
+        title: 'Жадность',
+        desc: '+25% монет.',
+        apply: () => {
+          player.coinMult += 0.25;
+        }
+      },
+      {
+        title: 'Замедление+',
+        desc: '+1 заряд замедления.',
+        apply: () => {
+          player.slowCharges = Math.min(5, player.slowCharges + 1);
+        }
+      }
+    ];
+
+    function openUpgradeScreen() {
+      const pool = [...UPGRADES];
+
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+
+      upgradeChoices = pool.slice(0, 3);
+      gameState = 'upgrade';
+    }
+
+    function applyUpgrade(index) {
+      const up = upgradeChoices[index];
+      if (!up) return;
+
+      up.apply();
+      playSound('upgrade');
+      saveAll();
+
+      gameState = 'playing';
     }
 
     // --- BOSS ATTACKS ---
 
-    function chooseBossAttack() {
-      const attacks = ['fan', 'aimed', 'infinity'];
+    function getBossPhase(b) {
+      const pct = b.hp / b.maxHp;
+
+      if (pct > 0.6) return 1;
+      if (pct > 0.3) return 2;
+      return 3;
+    }
+
+    function chooseBossAttack(phase) {
+      const attacks = ['fan', 'aimed'];
+
+      if (phase >= 1) attacks.push('infinity');
+      if (phase >= 2) attacks.push('spiral');
+      if (phase >= 3) attacks.push('cross', 'infinity');
+
       return attacks[Math.floor(Math.random() * attacks.length)];
     }
 
     function executeBossAttack(type) {
+      if (!boss) return;
+
       if (type === 'fan') {
         const count = Math.min(13, 5 + bossNumber);
         const base = Math.atan2(player.y - boss.y, player.x - boss.x);
@@ -867,9 +1331,111 @@
 
         playSound('meteorCharge');
       }
+
+      if (type === 'spiral') {
+        const count = 16;
+
+        for (let i = 0; i < count; i++) {
+          const ang = (i / count) * Math.PI * 2 + boss.phase * 0.7;
+          const speed = 230 + bossNumber * 10;
+
+          enemyLasers.push({
+            x: boss.x,
+            y: boss.y,
+            vx: Math.cos(ang) * speed,
+            vy: Math.sin(ang) * speed,
+            r: 4,
+            color: '#ff9f43',
+            isMiniMeteor: false
+          });
+        }
+
+        playSound('bossLaser');
+      }
+
+      if (type === 'cross') {
+        const dirs = [
+          { x: 1, y: 0 },
+          { x: -1, y: 0 },
+          { x: 0, y: 1 },
+          { x: 0, y: -1 },
+          { x: 0.7, y: 0.7 },
+          { x: -0.7, y: 0.7 },
+          { x: 0.7, y: -0.7 },
+          { x: -0.7, y: -0.7 }
+        ];
+
+        for (const d of dirs) {
+          enemyLasers.push({
+            x: boss.x,
+            y: boss.y,
+            vx: d.x * 340,
+            vy: d.y * 340,
+            r: 7,
+            color: '#ffffff',
+            isMiniMeteor: false
+          });
+        }
+
+        playSound('bossLaser');
+      }
     }
 
     // --- UPDATE ---
+
+    function updateDrone(dt, wdt) {
+      if (player.droneTime <= 0) return;
+
+      player.droneTime -= dt;
+      player.droneCooldown -= dt;
+      player.droneAngle += dt * 3;
+
+      if (player.droneCooldown <= 0) {
+        const droneX = player.x + Math.cos(player.droneAngle) * 35;
+        const droneY = player.y + Math.sin(player.droneAngle) * 35;
+
+        let target = null;
+        let best = 999999;
+
+        for (const a of asteroids) {
+          const d = Math.hypot(a.x - droneX, a.y - droneY);
+
+          if (d < best) {
+            best = d;
+            target = a;
+          }
+        }
+
+        if (boss) {
+          const d = Math.hypot(boss.x - droneX, boss.y - droneY);
+
+          if (d < best) {
+            target = boss;
+          }
+        }
+
+        if (target) {
+          player.droneCooldown = 0.35;
+
+          const dx = target.x - droneX;
+          const dy = target.y - droneY;
+          const d = Math.hypot(dx, dy) || 1;
+
+          bullets.push({
+            x: droneX,
+            y: droneY,
+            vx: (dx / d) * 620,
+            vy: (dy / d) * 620,
+            r: 3,
+            dmg: 1 + player.damageBonus,
+            color: '#9b59b6',
+            pierce: false,
+            hit: [],
+            hitBoss: false
+          });
+        }
+      }
+    }
 
     function update(dt) {
       time += dt;
@@ -883,8 +1449,14 @@
 
       if (warningTimer > 0) warningTimer -= dt;
 
+      const diff = getDifficulty();
+
       if (!gameOver && !boss) {
-        score += DIFFICULTY_PRESETS[settings.difficulty].scoreRate * dt;
+        score += diff.scoreRate * dt;
+      }
+
+      if (!gameOver) {
+        runStats.time += dt;
       }
 
       const timeScale = player.slowActive > 0 ? 0.35 : 1;
@@ -909,6 +1481,7 @@
       player.tripleTime = Math.max(0, player.tripleTime - dt);
       player.invuln = Math.max(0, player.invuln - dt);
       player.dashTimer = Math.max(0, player.dashTimer - dt);
+      player.magnetTime = Math.max(0, player.magnetTime - dt);
 
       if (player.slowActive > 0) {
         player.slowActive -= dt;
@@ -922,8 +1495,22 @@
       if (keys.ArrowDown || keys.KeyS) my++;
       if (keys.ArrowUp || keys.KeyW) my--;
 
+      if (touchJoy.id !== null) {
+        const dx = touchJoy.x - touchJoy.baseX;
+        const dy = touchJoy.y - touchJoy.baseY;
+
+        mx += clamp(dx / 50, -1, 1);
+        my += clamp(dy / 50, -1, 1);
+      }
+
       if (mx || my) {
-        const len = Math.hypot(mx, my);
+        let len = Math.hypot(mx, my);
+
+        if (len > 1) {
+          mx /= len;
+          my /= len;
+          len = 1;
+        }
 
         player.lastDx = mx / len;
         player.lastDy = my / len;
@@ -937,9 +1524,11 @@
       player.x = clamp(player.x, 25, W - 25);
       player.y = clamp(player.y, 25, H - 25);
 
-      if (keys.Space && player.cooldown <= 0) {
+      if ((keys.Space || touchFireId !== null) && player.cooldown <= 0) {
         shoot();
       }
+
+      updateDrone(dt, wdt);
 
       if (!boss) {
         spawnTimer -= wdt;
@@ -947,14 +1536,11 @@
         if (spawnTimer <= 0) {
           spawnAsteroid();
 
-          if (score > 20000 && Math.random() < 0.35) {
+          if (score > 20000 && Math.random() < 0.25) {
             spawnAsteroid();
           }
 
-          spawnTimer = Math.max(
-            0.25,
-            1.05 * DIFFICULTY_PRESETS[settings.difficulty].spawnMult - score / 150000
-          );
+          spawnTimer = Math.max(0.35, 1.2 * diff.spawnMult - score / 200000);
         }
       } else {
         spawnTimer = 0.5;
@@ -964,7 +1550,7 @@
 
       if (orbTimer <= 0) {
         spawnOrb(W + 30, rand(60, H - 60));
-        orbTimer = rand(5, 9);
+        orbTimer = rand(5, 9) / diff.orbMult;
       }
 
       if (!boss && score >= nextBossScore) {
@@ -1093,7 +1679,7 @@
           a.vy += (dy / d) * 300 * wdt;
 
           const sp = Math.hypot(a.vx, a.vy);
-          const maxSp = 220 * DIFFICULTY_PRESETS[settings.difficulty].speedMult;
+          const maxSp = 220 * diff.speedMult;
 
           if (sp > maxSp) {
             a.vx *= maxSp / sp;
@@ -1167,8 +1753,21 @@
         const o = orbs[i];
 
         o.phase += dt;
-        o.x += o.vx * wdt;
-        o.y += Math.sin(o.phase * 3) * 22 * wdt;
+
+        if (player.magnetTime > 0) {
+          const d = dist(o, player);
+
+          if (d < player.magnetRadius) {
+            o.x += (player.x - o.x) * 6 * dt;
+            o.y += (player.y - o.y) * 6 * dt;
+          } else {
+            o.x += o.vx * wdt;
+            o.y += Math.sin(o.phase * 3) * 22 * wdt;
+          }
+        } else {
+          o.x += o.vx * wdt;
+          o.y += Math.sin(o.phase * 3) * 22 * wdt;
+        }
 
         if (o.x < -60) {
           orbs.splice(i, 1);
@@ -1176,6 +1775,15 @@
       }
 
       if (boss) {
+        const phase = getBossPhase(boss);
+
+        if (phase !== boss.phaseNumber) {
+          boss.phaseNumber = phase;
+          addParticles(boss.x, boss.y, '#ffffff', 40);
+          playSound('warning');
+          screenShake = 0.5;
+        }
+
         boss.phase += wdt;
 
         boss.x = W - 170 + Math.sin(boss.phase * 0.85) * 105;
@@ -1195,22 +1803,33 @@
           }
 
           if (boss.shootTimer <= 0 && boss.miniMeteorsAlive <= 0) {
-            const attack = chooseBossAttack();
+            const attack = chooseBossAttack(boss.phaseNumber);
 
             boss.nextAttack = attack;
-            boss.warningTimer = attack === 'infinity' ? 1.2 : 0.5;
-            warningTimer = boss.warningTimer;
 
             if (attack === 'infinity') {
+              boss.warningTimer = 1.2;
+              warningTimer = 1.2;
               playSound('warning');
+            } else if (attack === 'spiral' || attack === 'cross') {
+              boss.warningTimer = 0.7;
+              warningTimer = 0.7;
+              playSound('warning');
+            } else {
+              boss.warningTimer = 0.4;
+              warningTimer = 0.4;
             }
 
-            const cdMult = DIFFICULTY_PRESETS[settings.difficulty].bossCdMult;
-            const enrage = boss.hp < boss.maxHp * 0.3 ? 0.6 : 1.0;
+            const phaseCd =
+              boss.phaseNumber === 3
+                ? 0.65
+                : boss.phaseNumber === 2
+                  ? 0.85
+                  : 1.0;
 
             boss.shootTimer = Math.max(
-              0.6,
-              (1.8 - bossNumber * 0.08) * cdMult * enrage
+              0.5,
+              (1.9 - bossNumber * 0.08) * diff.bossCdMult * phaseCd
             );
           }
         }
@@ -1334,19 +1953,34 @@
         drawMenu();
       } else if (gameState === 'settings') {
         drawSettings();
-      } else if (gameState === 'playing' || gameState === 'gameover') {
+      } else if (gameState === 'records') {
+        drawRecords();
+      } else if (
+        gameState === 'playing' ||
+        gameState === 'gameover' ||
+        gameState === 'upgrade'
+      ) {
         drawStars();
         drawOrbs();
         drawAsteroids();
         drawBoss();
         drawBullets();
         drawEnemyLasers();
+        drawDrone();
         drawPlayer();
         drawParticles();
         drawUI();
 
+        if (isTouchDevice && gameState === 'playing' && !gameOver) {
+          drawTouchControls();
+        }
+
         if (gameOver) {
           drawGameOver();
+        }
+
+        if (gameState === 'upgrade') {
+          drawUpgradeScreen();
         }
       }
 
@@ -1400,6 +2034,39 @@
         ctx.stroke();
       }
 
+      if (player.magnetTime > 0) {
+        ctx.strokeStyle = 'rgba(46,204,113,0.25)';
+        ctx.lineWidth = 1;
+
+        ctx.beginPath();
+        ctx.arc(0, 0, player.magnetRadius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function drawDrone() {
+      if (gameOver || player.droneTime <= 0) return;
+
+      const droneX = player.x + Math.cos(player.droneAngle) * 35;
+      const droneY = player.y + Math.sin(player.droneAngle) * 35;
+
+      ctx.save();
+      ctx.translate(droneX, droneY);
+
+      ctx.fillStyle = '#9b59b6';
+      ctx.shadowColor = '#9b59b6';
+      ctx.shadowBlur = 10;
+
+      ctx.beginPath();
+      ctx.moveTo(8, 0);
+      ctx.lineTo(-6, -5);
+      ctx.lineTo(-3, 0);
+      ctx.lineTo(-6, 5);
+      ctx.closePath();
+      ctx.fill();
+
       ctx.restore();
     }
 
@@ -1446,6 +2113,32 @@
           ctx.stroke();
         }
 
+        if (a.type === 'green') {
+          ctx.strokeStyle = 'rgba(160,255,190,0.7)';
+          ctx.lineWidth = 2;
+
+          ctx.beginPath();
+          ctx.arc(0, 0, a.r + 6, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        if (a.type === 'armor') {
+          ctx.strokeStyle = '#ecf0f1';
+          ctx.lineWidth = 4;
+
+          ctx.beginPath();
+          ctx.arc(0, 0, a.r + 3, 0, Math.PI * 2);
+          ctx.stroke();
+
+          const pct = clamp(a.hp / 12, 0, 1);
+
+          ctx.fillStyle = '#2c3e50';
+          ctx.fillRect(-a.r, -a.r - 12, a.r * 2, 5);
+
+          ctx.fillStyle = '#ecf0f1';
+          ctx.fillRect(-a.r, -a.r - 12, a.r * 2 * pct, 5);
+        }
+
         ctx.restore();
       }
     }
@@ -1453,22 +2146,37 @@
     function drawBoss() {
       if (!boss) return;
 
+      const phase = boss.phaseNumber || 1;
+
+      const colors = {
+        1: { main: '#ff3b6b', bg: '#471328' },
+        2: { main: '#ff9f43', bg: '#4a2c10' },
+        3: { main: '#e056fd', bg: '#3a104a' }
+      };
+
+      const c = colors[phase];
+
       ctx.save();
       ctx.translate(boss.x, boss.y);
 
       const pulse = 1 + Math.sin((time * 6) % 100) * 0.03;
 
-      ctx.fillStyle = '#471328';
+      if (phase === 3) {
+        ctx.shadowColor = c.main;
+        ctx.shadowBlur = 25;
+      }
+
+      ctx.fillStyle = c.bg;
 
       ctx.beginPath();
       ctx.arc(0, 0, boss.r * pulse, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.strokeStyle = '#ff3b6b';
+      ctx.strokeStyle = c.main;
       ctx.lineWidth = 5;
       ctx.stroke();
 
-      ctx.fillStyle = '#ff3b6b';
+      ctx.fillStyle = c.main;
 
       ctx.beginPath();
       ctx.arc(0, 0, boss.r * 0.42, 0, Math.PI * 2);
@@ -1607,6 +2315,8 @@
     }
 
     function drawUI() {
+      const diff = getDifficulty();
+
       ctx.fillStyle = '#eaf2ff';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
@@ -1630,19 +2340,25 @@
         ctx.fillText(`КОМБО x${combo}`, 14, 85);
       }
 
-      ctx.font = '14px monospace';
+      ctx.font = '13px monospace';
       ctx.fillStyle = '#eaf2ff';
 
       ctx.fillText(
-        `Щиты:${player.shield} Лазер:${Math.ceil(player.laserTime)}с Тройной:${Math.ceil(player.tripleTime)}с Замедл:${player.slowCharges}[E] Рывок:${player.dashCharges}[Q]`,
+        `Щиты:${player.shield} Лазер:${Math.ceil(player.laserTime)}с Тройной:${Math.ceil(player.tripleTime)}с Замедл:${player.slowCharges}[E] Рывок:${player.dashCharges}[Q] Бомбы:${player.bombs}[B]`,
         14,
-        H - 14
+        H - 48
+      );
+
+      ctx.fillText(
+        `Дрон:${Math.ceil(player.droneTime)}с Магнит:${Math.ceil(player.magnetTime)}с`,
+        14,
+        H - 28
       );
 
       ctx.fillText(
         'WASD - движение, Пробел - огонь, M - звук, Esc - меню',
         14,
-        H - 34
+        H - 10
       );
 
       ctx.fillText(
@@ -1652,9 +2368,16 @@
       );
 
       ctx.fillText(
-        `Сложность: ${DIFFICULTY_PRESETS[settings.difficulty].name}`,
+        `Сложность: ${diff.name}`,
         W - 210,
         50
+      );
+
+      ctx.fillStyle = '#f1c40f';
+      ctx.fillText(
+        `Монеты: ${wallet.coins}`,
+        W - 210,
+        72
       );
 
       if (player.slowActive > 0) {
@@ -1687,7 +2410,7 @@
         ctx.textAlign = 'center';
 
         ctx.fillText(
-          `Босс ${bossNumber} — ${Math.max(0, boss.hp)}/${boss.maxHp}`,
+          `Босс ${bossNumber} — Фаза ${boss.phaseNumber} — ${Math.max(0, boss.hp)}/${boss.maxHp}`,
           W / 2,
           y + 13
         );
@@ -1714,22 +2437,36 @@
       ctx.textAlign = 'center';
 
       ctx.font = '42px monospace';
-      ctx.fillText('ИГРА ОКОНЧЕНА', W / 2, H / 2 - 40);
+      ctx.fillText('ИГРА ОКОНЧЕНА', W / 2, H / 2 - 60);
 
       ctx.font = '24px monospace';
+
       ctx.fillText(
         `Счёт: ${Math.floor(score)} | Макс. комбо: x${maxCombo}`,
         W / 2,
-        H / 2 + 5
+        H / 2 - 10
       );
 
       ctx.font = '18px monospace';
-      ctx.fillText('Нажми R, чтобы начать заново', W / 2, H / 2 + 45);
+
+      ctx.fillText(
+        `Монеты за забег: ${runStats.coins} | Всего монет: ${wallet.coins}`,
+        W / 2,
+        H / 2 + 25
+      );
+
+      ctx.fillText(
+        `Рекорд: ${stats.bestScore}`,
+        W / 2,
+        H / 2 + 55
+      );
+
+      ctx.fillText('Нажми R, чтобы начать заново', W / 2, H / 2 + 90);
 
       ctx.textAlign = 'left';
     }
 
-    // --- MENU / SETTINGS UI ---
+    // --- MENU / SETTINGS / RECORDS / UPGRADE UI ---
 
     function drawButton(text, x, y, w, h) {
       const hover = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
@@ -1778,18 +2515,28 @@
       ctx.font = '40px monospace';
       ctx.textAlign = 'center';
 
-      ctx.fillText('КОСМИЧЕСКИЙ КОРАБЛИК', W / 2, 150);
+      ctx.fillText('КОСМИЧЕСКИЙ КОРАБЛИК', W / 2, 120);
+
+      ctx.font = '18px monospace';
+      ctx.fillStyle = '#f1c40f';
+
+      ctx.fillText(`Монеты: ${wallet.coins}`, W / 2, 160);
 
       ctx.textAlign = 'left';
 
-      if (drawButton('ИГРАТЬ', W / 2 - 100, 250, 200, 50)) {
+      if (drawButton('ИГРАТЬ', W / 2 - 100, 230, 200, 50)) {
         reset();
         gameState = 'playing';
         playSound('click');
       }
 
-      if (drawButton('НАСТРОЙКИ', W / 2 - 100, 320, 200, 50)) {
+      if (drawButton('НАСТРОЙКИ', W / 2 - 100, 300, 200, 50)) {
         gameState = 'settings';
+        playSound('click');
+      }
+
+      if (drawButton('РЕКОРДЫ', W / 2 - 100, 370, 200, 50)) {
+        gameState = 'records';
         playSound('click');
       }
     }
@@ -1799,74 +2546,109 @@
       ctx.font = '30px monospace';
       ctx.textAlign = 'center';
 
-      ctx.fillText('НАСТРОЙКИ', W / 2, 50);
+      ctx.fillText('НАСТРОЙКИ', W / 2, 40);
 
       ctx.textAlign = 'left';
 
-      ctx.fillStyle = '#eaf2ff';
-      ctx.font = '16px monospace';
-      ctx.fillText('Сложность:', 50, 100);
+      const names = ['Легко', 'Норм', 'Сложно', 'Кастом'];
 
-      const diffNames = ['Легко', 'Нормально', 'Сложно'];
-
-      for (let i = 0; i < 3; i++) {
-        const bx = 200 + i * 160;
+      for (let i = 0; i < 4; i++) {
+        const bx = 60 + i * 170;
         const selected = settings.difficulty === i;
 
         ctx.fillStyle = selected ? '#2980b9' : '#1a252f';
-        ctx.fillRect(bx, 80, 140, 30);
+        ctx.fillRect(bx, 65, 150, 30);
 
         ctx.strokeStyle = '#3498db';
-        ctx.strokeRect(bx, 80, 140, 30);
+        ctx.strokeRect(bx, 65, 150, 30);
 
         ctx.fillStyle = '#ffffff';
         ctx.font = '14px monospace';
         ctx.textAlign = 'center';
 
-        ctx.fillText(diffNames[i], bx + 70, 100);
+        ctx.fillText(names[i], bx + 75, 85);
 
         ctx.textAlign = 'left';
 
         if (
           clicked &&
           mouseX >= bx &&
-          mouseX <= bx + 140 &&
-          mouseY >= 80 &&
-          mouseY <= 110
+          mouseX <= bx + 150 &&
+          mouseY >= 65 &&
+          mouseY <= 95
         ) {
           settings.difficulty = i;
-          saveSettings();
+          saveAll();
           playSound('click');
         }
       }
 
-      drawSlider('Общая громкость', settings.masterVol, 50, 150, 300, (v) => {
+      if (settings.difficulty === 3) {
+        const c = settings.custom;
+
+        drawSlider('Скорость очков', c.score, 50, 130, 380, (v) => {
+          c.score = v;
+          saveAll();
+        });
+
+        drawSlider('Количество метеоритов', c.spawn, 50, 165, 380, (v) => {
+          c.spawn = v;
+          saveAll();
+        });
+
+        drawSlider('Скорость метеоритов', c.speed, 50, 200, 380, (v) => {
+          c.speed = v;
+          saveAll();
+        });
+
+        drawSlider('HP босса', c.bossHp, 50, 235, 380, (v) => {
+          c.bossHp = v;
+          saveAll();
+        });
+
+        drawSlider('Скорость атак босса', c.bossCd, 50, 270, 380, (v) => {
+          c.bossCd = v;
+          saveAll();
+        });
+
+        drawSlider('Частота орбов', c.orb, 50, 305, 380, (v) => {
+          c.orb = v;
+          saveAll();
+        });
+
+        drawSlider('Макс. метеоритов', c.maxAst, 50, 340, 380, (v) => {
+          c.maxAst = v;
+          saveAll();
+        });
+      }
+
+      drawSlider('Общая громкость', settings.masterVol, 520, 130, 380, (v) => {
         settings.masterVol = v;
         updateMasterVolume();
-        saveSettings();
+        saveAll();
       });
 
-      drawSlider('Выстрелы', settings.sfxShoot, 50, 200, 300, (v) => {
+      drawSlider('Выстрелы', settings.sfxShoot, 520, 165, 380, (v) => {
         settings.sfxShoot = v;
-        saveSettings();
+        saveAll();
       });
 
-      drawSlider('Взрывы', settings.sfxExplosion, 50, 250, 300, (v) => {
+      drawSlider('Взрывы', settings.sfxExplosion, 520, 200, 380, (v) => {
         settings.sfxExplosion = v;
-        saveSettings();
+        saveAll();
       });
 
-      drawSlider('Босс', settings.sfxBoss, 50, 300, 300, (v) => {
+      drawSlider('Босс', settings.sfxBoss, 520, 235, 380, (v) => {
         settings.sfxBoss = v;
-        saveSettings();
+        saveAll();
       });
 
-      drawSlider('Интерфейс', settings.sfxUI, 50, 350, 300, (v) => {
+      drawSlider('Интерфейс', settings.sfxUI, 520, 270, 380, (v) => {
         settings.sfxUI = v;
-        saveSettings();
+        saveAll();
       });
 
-      if (drawButton('ТЕСТ ЗВУКА', 50, 400, 150, 30)) {
+      if (drawButton('ТЕСТ ЗВУКА', 520, 320, 170, 35)) {
         playSound('explosion');
         playSound('bossSpawn');
       }
@@ -1875,6 +2657,150 @@
         gameState = 'menu';
         playSound('click');
       }
+    }
+
+    function drawRecords() {
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '30px monospace';
+      ctx.textAlign = 'center';
+
+      ctx.fillText('РЕКОРДЫ И СТАТИСТИКА', W / 2, 60);
+
+      ctx.textAlign = 'left';
+      ctx.font = '20px monospace';
+
+      const lines = [
+        `Лучший счёт: ${stats.bestScore}`,
+        `Максимальное комбо: x${stats.maxCombo}`,
+        `Убито боссов: ${stats.bossesKilled}`,
+        `Уничтожено метеоритов: ${stats.asteroidsDestroyed}`,
+        `Всего времени в игре: ${formatTime(stats.totalTime)}`,
+        `Всего заработано монет: ${stats.totalCoins}`,
+        `Текущие монеты: ${wallet.coins}`,
+        `Всего забегов: ${stats.runs}`
+      ];
+
+      lines.forEach((line, i) => {
+        ctx.fillText(line, W / 2 - 280, 130 + i * 38);
+      });
+
+      if (drawButton('НАЗАД', W / 2 - 100, 470, 200, 50)) {
+        gameState = 'menu';
+        playSound('click');
+      }
+    }
+
+    function drawUpgradeScreen() {
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '34px monospace';
+      ctx.textAlign = 'center';
+
+      ctx.fillText('ВЫБЕРИ УЛУЧШЕНИЕ', W / 2, 100);
+
+      ctx.textAlign = 'left';
+
+      for (let i = 0; i < upgradeChoices.length; i++) {
+        const up = upgradeChoices[i];
+
+        const x = 60 + i * 300;
+        const y = 160;
+        const w = 260;
+        const h = 220;
+
+        const hover = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+
+        ctx.fillStyle = hover ? '#2c3e50' : '#17222e';
+        ctx.fillRect(x, y, w, h);
+
+        ctx.strokeStyle = hover ? '#f1c40f' : '#3498db';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x, y, w, h);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '20px monospace';
+        ctx.textAlign = 'center';
+
+        ctx.fillText(up.title, x + w / 2, y + 55);
+
+        ctx.font = '14px monospace';
+        ctx.fillStyle = '#bdc3c7';
+
+        const words = up.desc.split(' ');
+        let line = '';
+        let yy = y + 100;
+
+        for (const word of words) {
+          const test = line + word + ' ';
+
+          if (ctx.measureText(test).width > w - 30) {
+            ctx.fillText(line, x + w / 2, yy);
+            line = word + ' ';
+            yy += 22;
+          } else {
+            line = test;
+          }
+        }
+
+        ctx.fillText(line, x + w / 2, yy);
+
+        ctx.textAlign = 'left';
+
+        if (clicked && hover) {
+          applyUpgrade(i);
+        }
+      }
+    }
+
+    function drawTouchControls() {
+      if (touchJoy.id !== null) {
+        ctx.save();
+
+        ctx.globalAlpha = 0.25;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+
+        ctx.beginPath();
+        ctx.arc(touchJoy.baseX, touchJoy.baseY, 55, 0, Math.PI * 2);
+        ctx.stroke();
+
+        const dx = clamp(touchJoy.x - touchJoy.baseX, -45, 45);
+        const dy = clamp(touchJoy.y - touchJoy.baseY, -45, 45);
+
+        ctx.fillStyle = '#ffffff';
+
+        ctx.beginPath();
+        ctx.arc(touchJoy.baseX + dx, touchJoy.baseY + dy, 18, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      for (const b of touchButtons) {
+        ctx.save();
+
+        ctx.globalAlpha = 0.22;
+
+        ctx.fillStyle = '#ffffff';
+
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.globalAlpha = 0.75;
+        ctx.fillStyle = '#04060f';
+        ctx.font = `${b.id === 'fire' ? 16 : 10}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        ctx.fillText(b.label, b.x, b.y);
+
+        ctx.restore();
+      }
+
+      ctx.textBaseline = 'alphabetic';
     }
 
     // --- MAIN LOOP ---
