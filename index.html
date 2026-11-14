@@ -33,7 +33,7 @@
     const W = canvas.width;
     const H = canvas.height;
 
-    let gameState = 'menu'; // menu, settings, records, playing, gameover, upgrade
+    let gameState = 'menu'; // menu, settings, records, shop, help, playing, gameover, upgrade
     let mouseX = 0;
     let mouseY = 0;
     let clicked = false;
@@ -60,10 +60,112 @@
       return `${m}:${s.toString().padStart(2, '0')}`;
     }
 
-    // --- SETTINGS / SAVE ---
+    // --- COSMETICS DEFAULT ---
+
+    const defaultCosmetics = {
+      owned: {
+        shipColor: ['default'],
+        shipShape: ['default'],
+        face: ['none'],
+        trail: ['default'],
+        drone: ['default'],
+        shield: ['default']
+      },
+      selected: {
+        shipColor: 'default',
+        shipShape: 'default',
+        face: 'none',
+        trail: 'default',
+        drone: 'default',
+        shield: 'default'
+      }
+    };
+
+    let cosmetics = JSON.parse(JSON.stringify(defaultCosmetics));
+
+    const SHOP_ITEMS = {
+      shipColor: [
+        { id: 'default', name: 'Базовый', cost: 0, color: '#dbe8ff' },
+        { id: 'red', name: 'Красный', cost: 1000, color: '#ff6b6b' },
+        { id: 'green', name: 'Зелёный', cost: 1000, color: '#7bed9f' },
+        { id: 'blue', name: 'Синий', cost: 1000, color: '#70a1ff' },
+        { id: 'gold', name: 'Золотой', cost: 1000, color: '#ffd32a' },
+        { id: 'violet', name: 'Фиолетовый', cost: 1000, color: '#e056fd' }
+      ],
+      shipShape: [
+        { id: 'default', name: 'Классика', cost: 0 },
+        { id: 'stealth', name: 'Стелс', cost: 5000 },
+        { id: 'heavy', name: 'Тяжёлый', cost: 5000 }
+      ],
+      face: [
+        { id: 'none', name: 'Без морды', cost: 0, icon: '' },
+        { id: 'cat', name: 'Кот', cost: 10000, icon: '😺' },
+        { id: 'dog', name: 'Пёс', cost: 10000, icon: '🐶' },
+        { id: 'frog', name: 'Лягушка', cost: 10000, icon: '🐸' }
+      ],
+      trail: [
+        { id: 'default', name: 'Белый след', cost: 0, color: 'rgba(255,255,255,0.75)' },
+        { id: 'blue', name: 'Синий след', cost: 500, color: '#4aa3ff' },
+        { id: 'green', name: 'Зелёный след', cost: 500, color: '#2ecc71' },
+        { id: 'pink', name: 'Розовый след', cost: 500, color: '#ff7ad9' },
+        { id: 'rainbow', name: 'Радужный след', cost: 1500, color: '#ff0044' }
+      ],
+      drone: [
+        { id: 'default', name: 'Обычный дрон', cost: 0, color: '#9b59b6' },
+        { id: 'neon', name: 'Неоновый дрон', cost: 1000, color: '#00ffcc' },
+        { id: 'gold', name: 'Золотой дрон', cost: 1000, color: '#ffd32a' },
+        { id: 'red', name: 'Красный дрон', cost: 1000, color: '#ff5555' }
+      ],
+      shield: [
+        { id: 'default', name: 'Обычный щит', cost: 0, color: '#59b7ff' },
+        { id: 'green', name: 'Зелёный щит', cost: 1000, color: '#2ecc71' },
+        { id: 'gold', name: 'Золотой щит', cost: 1000, color: '#ffd32a' },
+        { id: 'pink', name: 'Розовый щит', cost: 1000, color: '#ff7ad9' }
+      ]
+    };
+
+    const SHOP_CATEGORIES = [
+      { id: 'shipColor', name: 'Цвет' },
+      { id: 'shipShape', name: 'Форма' },
+      { id: 'face', name: 'Морда' },
+      { id: 'trail', name: 'След' },
+      { id: 'drone', name: 'Дрон' },
+      { id: 'shield', name: 'Щит' }
+    ];
+
+    let shopCategory = 'shipColor';
+
+    function getSelectedItem(category) {
+      const selectedId = cosmetics.selected[category];
+      return SHOP_ITEMS[category].find((item) => item.id === selectedId) || SHOP_ITEMS[category][0];
+    }
+
+    function isOwned(category, id) {
+      return cosmetics.owned[category].includes(id);
+    }
+
+    function buyOrSelect(category, item) {
+      if (isOwned(category, item.id)) {
+        cosmetics.selected[category] = item.id;
+        playSound('click');
+      } else {
+        if (wallet.coins >= item.cost) {
+          wallet.coins -= item.cost;
+          cosmetics.owned[category].push(item.id);
+          cosmetics.selected[category] = item.id;
+          playSound('upgrade');
+        } else {
+          playSound('shieldHit');
+        }
+      }
+
+      saveAll();
+    }
+
+    // --- SETTINGS / STATS / WALLET ---
 
     const defaultSettings = {
-      difficulty: 1, // 0 easy, 1 normal, 2 hard, 3 custom
+      difficulty: 1,
       masterVol: 1.0,
       sfxShoot: 0.5,
       sfxExplosion: 0.5,
@@ -114,6 +216,13 @@
 
         const savedWallet = localStorage.getItem('spaceGameWallet');
         if (savedWallet) Object.assign(wallet, JSON.parse(savedWallet));
+
+        const savedCosmetics = localStorage.getItem('spaceGameCosmetics');
+        if (savedCosmetics) {
+          const p = JSON.parse(savedCosmetics);
+          if (p.owned) Object.assign(cosmetics.owned, p.owned);
+          if (p.selected) Object.assign(cosmetics.selected, p.selected);
+        }
       } catch (e) {}
     }
 
@@ -121,6 +230,7 @@
       localStorage.setItem('spaceGameSettings', JSON.stringify(settings));
       localStorage.setItem('spaceGameStats', JSON.stringify(stats));
       localStorage.setItem('spaceGameWallet', JSON.stringify(wallet));
+      localStorage.setItem('spaceGameCosmetics', JSON.stringify(cosmetics));
     }
 
     loadAll();
@@ -486,7 +596,9 @@
         damageBonus: 0,
         fireRateMult: 1.0,
         comboDuration: 3.0,
-        coinMult: 1.0
+        coinMult: 1.0,
+
+        trailTimer: 0
       };
 
       bullets = [];
@@ -542,7 +654,9 @@
       keys[e.code] = true;
 
       if (e.code === 'Escape') {
-        if (gameState !== 'menu' && gameState !== 'upgrade') {
+        if (gameState === 'help') {
+          gameState = 'settings';
+        } else if (gameState !== 'menu' && gameState !== 'upgrade') {
           gameState = 'menu';
           screenShake = 0;
         }
@@ -765,6 +879,23 @@
       }
     }
 
+    // --- COSMETIC HELPERS ---
+
+    function getTrailColor() {
+      const id = cosmetics.selected.trail;
+
+      if (id === 'blue') return '#4aa3ff';
+      if (id === 'green') return '#2ecc71';
+      if (id === 'pink') return '#ff7ad9';
+
+      if (id === 'rainbow') {
+        const hue = Math.floor((time * 140) % 360);
+        return `hsl(${hue},100%,60%)`;
+      }
+
+      return 'rgba(255,255,255,0.7)';
+    }
+
     // --- SPAWN ---
 
     function spawnAsteroid() {
@@ -791,7 +922,8 @@
         y: rand(35, H - 35),
         vx: -baseSpeed,
         vy: rand(-40, 40),
-        hp: 2,
+        hp: 3,
+        maxHp: 3,
         r: 18,
         shootTimer: 0,
         color: '#ff5449',
@@ -802,14 +934,14 @@
 
       if (type === 'red') {
         a.r = rand(16, 30);
-        a.hp = Math.ceil(a.r / 10);
+        a.hp = 2 + Math.ceil(a.r / 10);
         a.color = '#ff5449';
         a.score = 20;
       }
 
       if (type === 'purple') {
         a.r = rand(14, 22);
-        a.hp = 2;
+        a.hp = 4;
         a.vx = -rand(50, 90) * diff.speedMult;
         a.color = '#b06cff';
         a.score = 35;
@@ -818,7 +950,7 @@
 
       if (type === 'orange') {
         a.r = rand(20, 32);
-        a.hp = 4;
+        a.hp = 7;
         a.vx = -rand(40, 80) * diff.speedMult;
         a.color = '#ff9f43';
         a.shootTimer = rand(0.8, 1.8);
@@ -827,7 +959,7 @@
 
       if (type === 'blue') {
         a.r = rand(22, 35);
-        a.hp = 3;
+        a.hp = 5;
         a.vx = -rand(40, 70) * diff.speedMult;
         a.color = '#3498db';
         a.score = 40;
@@ -835,7 +967,7 @@
 
       if (type === 'yellow') {
         a.r = rand(12, 18);
-        a.hp = 1;
+        a.hp = 2;
         a.vx = -rand(120, 180) * diff.speedMult;
         a.color = '#f1c40f';
         a.score = 25;
@@ -844,7 +976,7 @@
 
       if (type === 'green') {
         a.r = rand(20, 30);
-        a.hp = 2;
+        a.hp = 4;
         a.vx = -rand(50, 90) * diff.speedMult;
         a.color = '#2ecc71';
         a.score = 45;
@@ -852,11 +984,13 @@
 
       if (type === 'armor') {
         a.r = rand(26, 38);
-        a.hp = 12;
+        a.hp = 16;
         a.vx = -rand(25, 55) * diff.speedMult;
         a.color = '#95a5a6';
         a.score = 80;
       }
+
+      a.maxHp = a.hp;
 
       asteroids.push(a);
     }
@@ -1018,6 +1152,7 @@
             vx: rand(-150, 50),
             vy: rand(-150, 150),
             hp: 1,
+            maxHp: 1,
             r: 8,
             shootTimer: 0,
             color: '#85c1e9',
@@ -1113,7 +1248,7 @@
       if (player.shield > 0) {
         player.shield--;
         player.invuln = 1.2;
-        addParticles(player.x, player.y, '#59b7ff', 30);
+        addParticles(player.x, player.y, getSelectedItem('shield').color, 30);
         playSound('shieldHit');
       } else {
         gameOver = true;
@@ -1201,6 +1336,8 @@
     ];
 
     function openUpgradeScreen() {
+      screenShake = 0;
+
       const pool = [...UPGRADES];
 
       for (let i = pool.length - 1; i > 0; i--) {
@@ -1383,7 +1520,7 @@
 
     // --- UPDATE ---
 
-    function updateDrone(dt, wdt) {
+    function updateDrone(dt) {
       if (player.droneTime <= 0) return;
 
       player.droneTime -= dt;
@@ -1428,7 +1565,7 @@
             vy: (dy / d) * 620,
             r: 3,
             dmg: 1 + player.damageBonus,
-            color: '#9b59b6',
+            color: getSelectedItem('drone').color,
             pierce: false,
             hit: [],
             hitBoss: false
@@ -1519,6 +1656,23 @@
           player.x += player.lastDx * player.speed * dt;
           player.y += player.lastDy * player.speed * dt;
         }
+
+        player.trailTimer -= dt;
+
+        if (player.trailTimer <= 0) {
+          player.trailTimer = 0.03;
+
+          particles.push({
+            x: player.x - player.lastDx * 16,
+            y: player.y - player.lastDy * 16,
+            vx: -player.lastDx * 30 + rand(-10, 10),
+            vy: -player.lastDy * 30 + rand(-10, 10),
+            life: 0.25,
+            maxLife: 0.25,
+            color: getTrailColor(),
+            r: rand(1, 3)
+          });
+        }
       }
 
       player.x = clamp(player.x, 25, W - 25);
@@ -1528,7 +1682,7 @@
         shoot();
       }
 
-      updateDrone(dt, wdt);
+      updateDrone(dt);
 
       if (!boss) {
         spawnTimer -= wdt;
@@ -1955,6 +2109,10 @@
         drawSettings();
       } else if (gameState === 'records') {
         drawRecords();
+      } else if (gameState === 'shop') {
+        drawShop();
+      } else if (gameState === 'help') {
+        drawHelp();
       } else if (
         gameState === 'playing' ||
         gameState === 'gameover' ||
@@ -1997,6 +2155,11 @@
     function drawPlayer() {
       if (gameOver) return;
 
+      const shipColor = getSelectedItem('shipColor').color;
+      const shipShape = cosmetics.selected.shipShape;
+      const shieldColor = getSelectedItem('shield').color;
+      const faceId = cosmetics.selected.face;
+
       ctx.save();
       ctx.translate(player.x, player.y);
 
@@ -2009,24 +2172,56 @@
         ctx.shadowBlur = 18;
       }
 
-      ctx.fillStyle = '#dbe8ff';
+      ctx.fillStyle = shipColor;
 
-      ctx.beginPath();
-      ctx.moveTo(20, 0);
-      ctx.lineTo(-15, -12);
-      ctx.lineTo(-8, 0);
-      ctx.lineTo(-15, 12);
-      ctx.closePath();
-      ctx.fill();
+      if (shipShape === 'stealth') {
+        ctx.beginPath();
+        ctx.moveTo(24, 0);
+        ctx.lineTo(-12, -8);
+        ctx.lineTo(-18, 0);
+        ctx.lineTo(-12, 8);
+        ctx.closePath();
+        ctx.fill();
+      } else if (shipShape === 'heavy') {
+        ctx.beginPath();
+        ctx.moveTo(18, 0);
+        ctx.lineTo(-10, -16);
+        ctx.lineTo(-16, -8);
+        ctx.lineTo(-16, 8);
+        ctx.lineTo(-10, 16);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(20, 0);
+        ctx.lineTo(-15, -12);
+        ctx.lineTo(-8, 0);
+        ctx.lineTo(-15, 12);
+        ctx.closePath();
+        ctx.fill();
+      }
 
-      ctx.strokeStyle = '#8fb7ff';
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
       ctx.lineWidth = 2;
       ctx.stroke();
 
       ctx.shadowBlur = 0;
 
+      if (faceId !== 'none') {
+        const icons = {
+          cat: '😺',
+          dog: '🐶',
+          frog: '🐸'
+        };
+
+        ctx.font = '16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(icons[faceId] || '', 0, 0);
+      }
+
       if (player.shield > 0) {
-        ctx.strokeStyle = 'rgba(89,183,255,0.85)';
+        ctx.strokeStyle = shieldColor;
         ctx.lineWidth = 2 + player.shield;
 
         ctx.beginPath();
@@ -2051,12 +2246,13 @@
 
       const droneX = player.x + Math.cos(player.droneAngle) * 35;
       const droneY = player.y + Math.sin(player.droneAngle) * 35;
+      const droneColor = getSelectedItem('drone').color;
 
       ctx.save();
       ctx.translate(droneX, droneY);
 
-      ctx.fillStyle = '#9b59b6';
-      ctx.shadowColor = '#9b59b6';
+      ctx.fillStyle = droneColor;
+      ctx.shadowColor = droneColor;
       ctx.shadowBlur = 10;
 
       ctx.beginPath();
@@ -2130,7 +2326,7 @@
           ctx.arc(0, 0, a.r + 3, 0, Math.PI * 2);
           ctx.stroke();
 
-          const pct = clamp(a.hp / 12, 0, 1);
+          const pct = clamp(a.hp / a.maxHp, 0, 1);
 
           ctx.fillStyle = '#2c3e50';
           ctx.fillRect(-a.r, -a.r - 12, a.r * 2, 5);
@@ -2344,19 +2540,13 @@
       ctx.fillStyle = '#eaf2ff';
 
       ctx.fillText(
-        `Щиты:${player.shield} Лазер:${Math.ceil(player.laserTime)}с Тройной:${Math.ceil(player.tripleTime)}с Замедл:${player.slowCharges}[E] Рывок:${player.dashCharges}[Q] Бомбы:${player.bombs}[B]`,
-        14,
-        H - 48
-      );
-
-      ctx.fillText(
-        `Дрон:${Math.ceil(player.droneTime)}с Магнит:${Math.ceil(player.magnetTime)}с`,
+        `Щиты:${player.shield} Лазер:${Math.ceil(player.laserTime)}с Тройной:${Math.ceil(player.tripleTime)}с Замедл:${player.slowCharges} Рывок:${player.dashCharges} Бомбы:${player.bombs}`,
         14,
         H - 28
       );
 
       ctx.fillText(
-        'WASD - движение, Пробел - огонь, M - звук, Esc - меню',
+        `Дрон:${Math.ceil(player.droneTime)}с Магнит:${Math.ceil(player.magnetTime)}с`,
         14,
         H - 10
       );
@@ -2466,7 +2656,7 @@
       ctx.textAlign = 'left';
     }
 
-    // --- MENU / SETTINGS / RECORDS / UPGRADE UI ---
+    // --- MENU / SETTINGS / RECORDS / SHOP / HELP / UPGRADE UI ---
 
     function drawButton(text, x, y, w, h) {
       const hover = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
@@ -2515,30 +2705,41 @@
       ctx.font = '40px monospace';
       ctx.textAlign = 'center';
 
-      ctx.fillText('КОСМИЧЕСКИЙ КОРАБЛИК', W / 2, 120);
+      ctx.fillText('КОСМИЧЕСКИЙ КОРАБЛИК', W / 2, 100);
 
       ctx.font = '18px monospace';
       ctx.fillStyle = '#f1c40f';
 
-      ctx.fillText(`Монеты: ${wallet.coins}`, W / 2, 160);
+      ctx.fillText(`Монеты: ${wallet.coins}`, W / 2, 140);
 
       ctx.textAlign = 'left';
 
-      if (drawButton('ИГРАТЬ', W / 2 - 100, 230, 200, 50)) {
+      if (drawButton('ИГРАТЬ', W / 2 - 100, 200, 200, 50)) {
         reset();
         gameState = 'playing';
         playSound('click');
       }
 
-      if (drawButton('НАСТРОЙКИ', W / 2 - 100, 300, 200, 50)) {
+      if (drawButton('МАГАЗИН', W / 2 - 100, 270, 200, 50)) {
+        gameState = 'shop';
+        playSound('click');
+      }
+
+      if (drawButton('НАСТРОЙКИ', W / 2 - 100, 340, 200, 50)) {
         gameState = 'settings';
         playSound('click');
       }
 
-      if (drawButton('РЕКОРДЫ', W / 2 - 100, 370, 200, 50)) {
+      if (drawButton('РЕКОРДЫ', W / 2 - 100, 410, 200, 50)) {
         gameState = 'records';
         playSound('click');
       }
+
+      ctx.fillStyle = '#bdc3c7';
+      ctx.font = '14px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Управление находится в настройках → подсказки', W / 2, H - 15);
+      ctx.textAlign = 'left';
     }
 
     function drawSettings() {
@@ -2653,8 +2854,48 @@
         playSound('bossSpawn');
       }
 
+      if (drawButton('ПОДСКАЗКИ', 520, 370, 170, 35)) {
+        gameState = 'help';
+        playSound('click');
+      }
+
       if (drawButton('НАЗАД', W / 2 - 100, 470, 200, 50)) {
         gameState = 'menu';
+        playSound('click');
+      }
+    }
+
+    function drawHelp() {
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '30px monospace';
+      ctx.textAlign = 'center';
+
+      ctx.fillText('ПОДСКАЗКИ / УПРАВЛЕНИЕ', W / 2, 60);
+
+      ctx.textAlign = 'left';
+      ctx.font = '18px monospace';
+
+      const lines = [
+        'WASD / стрелки — движение',
+        'Пробел — стрельба',
+        'E / Shift — замедление времени',
+        'Q — рывок',
+        'B — бомба',
+        'M — звук вкл/выкл',
+        'Esc — меню',
+        'R — рестарт после смерти',
+        '',
+        'На телефоне:',
+        'Левая половина экрана — джойстик',
+        'Справа кнопки: огонь, бомба, рывок, время'
+      ];
+
+      lines.forEach((line, i) => {
+        ctx.fillText(line, W / 2 - 320, 120 + i * 30);
+      });
+
+      if (drawButton('НАЗАД', W / 2 - 100, 470, 200, 50)) {
+        gameState = 'settings';
         playSound('click');
       }
     }
@@ -2685,6 +2926,136 @@
       });
 
       if (drawButton('НАЗАД', W / 2 - 100, 470, 200, 50)) {
+        gameState = 'menu';
+        playSound('click');
+      }
+    }
+
+    function drawShop() {
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '30px monospace';
+      ctx.textAlign = 'center';
+
+      ctx.fillText('МАГАЗИН', W / 2, 45);
+
+      ctx.font = '20px monospace';
+      ctx.fillStyle = '#f1c40f';
+
+      ctx.fillText(`Монеты: ${wallet.coins}`, W / 2, 75);
+
+      ctx.textAlign = 'left';
+
+      for (let i = 0; i < SHOP_CATEGORIES.length; i++) {
+        const cat = SHOP_CATEGORIES[i];
+        const bx = 20 + i * 155;
+        const by = 95;
+        const bw = 145;
+        const bh = 30;
+
+        const selected = shopCategory === cat.id;
+        const hover = mouseX >= bx && mouseX <= bx + bw && mouseY >= by && mouseY <= by + bh;
+
+        ctx.fillStyle = selected ? '#2980b9' : hover ? '#2c3e50' : '#1a252f';
+        ctx.fillRect(bx, by, bw, bh);
+
+        ctx.strokeStyle = selected ? '#f1c40f' : '#3498db';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bx, by, bw, bh);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '14px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        ctx.fillText(cat.name, bx + bw / 2, by + bh / 2);
+
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+
+        if (clicked && hover) {
+          shopCategory = cat.id;
+          playSound('click');
+        }
+      }
+
+      const items = SHOP_ITEMS[shopCategory];
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+
+        const col = i % 3;
+        const row = Math.floor(i / 3);
+
+        const x = 45 + col * 300;
+        const y = 150 + row * 170;
+        const w = 270;
+        const h = 140;
+
+        const owned = isOwned(shopCategory, item.id);
+        const selected = cosmetics.selected[shopCategory] === item.id;
+        const hover = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+
+        ctx.fillStyle = hover ? '#22303f' : '#17222e';
+        ctx.fillRect(x, y, w, h);
+
+        ctx.strokeStyle = selected ? '#f1c40f' : owned ? '#2ecc71' : '#3498db';
+        ctx.lineWidth = selected ? 4 : 2;
+        ctx.strokeRect(x, y, w, h);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '18px monospace';
+        ctx.textAlign = 'center';
+
+        ctx.fillText(item.name, x + w / 2, y + 35);
+
+        if (item.color) {
+          ctx.fillStyle = item.color;
+          ctx.beginPath();
+          ctx.arc(x + w / 2, y + 70, 16, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        if (item.icon) {
+          ctx.font = '28px sans-serif';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(item.icon, x + w / 2, y + 70);
+          ctx.textBaseline = 'alphabetic';
+        }
+
+        if (!item.color && !item.icon) {
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x + w / 2 + 20, y + 70);
+          ctx.lineTo(x + w / 2 - 15, y + 58);
+          ctx.lineTo(x + w / 2 - 8, y + 70);
+          ctx.lineTo(x + w / 2 - 15, y + 82);
+          ctx.closePath();
+          ctx.stroke();
+        }
+
+        ctx.font = '16px monospace';
+
+        if (selected) {
+          ctx.fillStyle = '#f1c40f';
+          ctx.fillText('ВЫБРАНО', x + w / 2, y + 115);
+        } else if (owned) {
+          ctx.fillStyle = '#2ecc71';
+          ctx.fillText('Куплено — выбрать', x + w / 2, y + 115);
+        } else {
+          const canBuy = wallet.coins >= item.cost;
+          ctx.fillStyle = canBuy ? '#f1c40f' : '#ff5555';
+          ctx.fillText(`${item.cost} монет`, x + w / 2, y + 115);
+        }
+
+        ctx.textAlign = 'left';
+
+        if (clicked && hover) {
+          buyOrSelect(shopCategory, item);
+        }
+      }
+
+      if (drawButton('НАЗАД', W / 2 - 100, 480, 200, 45)) {
         gameState = 'menu';
         playSound('click');
       }
@@ -2814,6 +3185,9 @@
       if (gameState === 'playing') {
         update(dt);
       } else if (gameState === 'gameover') {
+        if (screenShake > 0) screenShake -= dt;
+        updateParticles(dt);
+      } else if (gameState === 'upgrade') {
         if (screenShake > 0) screenShake -= dt;
         updateParticles(dt);
       }
