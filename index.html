@@ -192,7 +192,8 @@
       asteroidsDestroyed: 0,
       totalTime: 0,
       totalCoins: 0,
-      runs: 0
+      runs: 0,
+      defenseWaves: 0
     };
 
     let stats = JSON.parse(JSON.stringify(defaultStats));
@@ -297,7 +298,7 @@
     let musicGain = null;
     let soundEnabled = true;
     let musicEnabled = true;
-    let musicInterval = null;
+    let musicNodes = [];
 
     function ensureAudio() {
       if (!audioCtx) {
@@ -514,43 +515,88 @@
       }
     }
 
-    // --- ФОНОВАЯ МУЗЫКА ---
+    // --- УЛУЧШЕННАЯ ФОНОВАЯ МУЗЫКА ---
 
     function startMusic() {
-      if (musicInterval || !musicEnabled) return;
+      if (musicNodes.length > 0 || !musicEnabled || !audioCtx) return;
 
-      const notes = [220, 247, 262, 294, 330, 370, 392, 440];
-      let noteIndex = 0;
+      // Басовая линия
+      const bassPattern = [55, 55, 73.42, 65.41, 55, 55, 82.41, 73.42];
+      let bassIndex = 0;
 
-      musicInterval = setInterval(() => {
-        if (!musicEnabled || !audioCtx || !musicGain) return;
+      const bassOsc = audioCtx.createOscillator();
+      const bassGain = audioCtx.createGain();
+      bassOsc.type = 'sine';
+      bassGain.gain.value = 0.15;
+      bassOsc.connect(bassGain);
+      bassGain.connect(musicGain);
+      bassOsc.start();
+      musicNodes.push(bassOsc);
 
-        const freq = notes[noteIndex % notes.length];
-        noteIndex++;
+      // Аккорды
+      const chordPattern = [
+        [220, 277.18, 329.63],
+        [196, 246.94, 293.66],
+        [261.63, 329.63, 392],
+        [220, 277.18, 329.63]
+      ];
+      let chordIndex = 0;
 
+      // Мелодия
+      const melodyPattern = [440, 523.25, 587.33, 659.25, 523.25, 440, 392, 440];
+      let melodyIndex = 0;
+
+      // Обновление басовой линии
+      setInterval(() => {
+        if (!musicEnabled) return;
+        bassOsc.frequency.setValueAtTime(bassPattern[bassIndex % bassPattern.length], audioCtx.currentTime);
+        bassIndex++;
+      }, 500);
+
+      // Обновление аккордов
+      setInterval(() => {
+        if (!musicEnabled) return;
+        const chord = chordPattern[chordIndex % chordPattern.length];
+        chord.forEach((freq, i) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0, audioCtx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.1);
+          gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1.8);
+          osc.connect(gain);
+          gain.connect(musicGain);
+          osc.start(audioCtx.currentTime);
+          osc.stop(audioCtx.currentTime + 1.8);
+        });
+        chordIndex++;
+      }, 2000);
+
+      // Обновление мелодии
+      setInterval(() => {
+        if (!musicEnabled) return;
+        const freq = melodyPattern[melodyIndex % melodyPattern.length];
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-
         osc.type = 'sine';
         osc.frequency.value = freq;
-
         gain.gain.setValueAtTime(0, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 0.1);
-        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.8);
-
+        gain.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.05);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.4);
         osc.connect(gain);
         gain.connect(musicGain);
-
         osc.start(audioCtx.currentTime);
-        osc.stop(audioCtx.currentTime + 0.8);
-      }, 800);
+        osc.stop(audioCtx.currentTime + 0.4);
+        melodyIndex++;
+      }, 400);
     }
 
     function stopMusic() {
-      if (musicInterval) {
-        clearInterval(musicInterval);
-        musicInterval = null;
-      }
+      musicNodes.forEach(node => {
+        try { node.stop(); } catch(e) {}
+      });
+      musicNodes = [];
     }
 
     // --- ИГРОВЫЕ ПЕРЕМЕННЫЕ ---
@@ -565,6 +611,15 @@
     let particles;
     let stars;
     let bossShips;
+
+    // Режим Обороны
+    let defenseMode = false;
+    let defenseWave = 0;
+    let defenseEnemies = [];
+    let defenseTurrets = [];
+    let defenseResources = 0;
+    let defenseWallHP = 100;
+    let defenseTurretSlots = [];
 
     let score;
     let time;
@@ -664,6 +719,8 @@
       orbs = [];
       particles = [];
       bossShips = [];
+      defenseEnemies = [];
+      defenseTurrets = [];
 
       score = 0;
       time = 0;
@@ -682,6 +739,11 @@
       maxCombo = 1;
 
       upgradeChoices = [];
+
+      defenseMode = false;
+      defenseWave = 0;
+      defenseResources = 0;
+      defenseWallHP = 100;
 
       resetRunStats();
     }
@@ -717,6 +779,7 @@
         } else if (gameState !== 'menu' && gameState !== 'upgrade') {
           gameState = 'menu';
           screenShake = 0;
+          defenseMode = false;
         }
         return;
       }
@@ -766,128 +829,37 @@
       mouseY = (e.clientY - rect.top) * (H / rect.height);
     });
 
-    canvas.addEventListener('mousedown', () => {
+    canvas.addEventListener('mousedown', (e) => {
       ensureAudio();
       clicked = true;
+
+      // Обработка кликов в режиме Обороны
+      if (defenseMode && gameState === 'playing') {
+        const rect = canvas.getBoundingClientRect();
+        const clickX = (e.clientX - rect.left) * (W / rect.width);
+        const clickY = (e.clientY - rect.top) * (H / rect.height);
+
+        // Проверка клика по слотам турелей
+        for (let i = 0; i < defenseTurretSlots.length; i++) {
+          const slot = defenseTurretSlots[i];
+          if (Math.hypot(clickX - slot.x, clickY - slot.y) < 30) {
+            // Построить турель если слот пустой
+            if (!slot.turret && defenseResources >= 50) {
+              defenseResources -= 50;
+              slot.turret = {
+                type: 'laser',
+                level: 1,
+                cooldown: 0,
+                x: slot.x,
+                y: slot.y
+              };
+              playSound('upgrade');
+            }
+            break;
+          }
+        }
+      }
     });
-
-    // --- СЕНСОРНОЕ УПРАВЛЕНИЕ ---
-
-    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-
-    const touchJoy = {
-      id: null,
-      baseX: 130,
-      baseY: H - 130,
-      x: 130,
-      y: H - 130
-    };
-
-    let touchFireId = null;
-
-    const touchButtons = [
-      { id: 'fire', x: W - 95, y: H - 105, r: 55, label: 'ОГОНЬ' },
-      { id: 'bomb', x: W - 190, y: H - 70, r: 32, label: 'БОМБА' },
-      { id: 'dash', x: W - 190, y: H - 160, r: 32, label: 'РЫВ' },
-      { id: 'slow', x: W - 95, y: H - 210, r: 32, label: 'ВРЕМЯ' }
-    ];
-
-    function getTouchPos(touch) {
-      const rect = canvas.getBoundingClientRect();
-      return {
-        x: (touch.clientX - rect.left) * (W / rect.width),
-        y: (touch.clientY - rect.top) * (H / rect.height)
-      };
-    }
-
-    canvas.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      ensureAudio();
-
-      for (const touch of e.changedTouches) {
-        const p = getTouchPos(touch);
-
-        mouseX = p.x;
-        mouseY = p.y;
-
-        if (gameState !== 'playing') {
-          clicked = true;
-          continue;
-        }
-
-        const btn = touchButtons.find((b) => Math.hypot(p.x - b.x, p.y - b.y) < b.r);
-
-        if (btn) {
-          if (btn.id === 'fire') {
-            touchFireId = touch.identifier;
-          }
-
-          if (btn.id === 'bomb') {
-            useBomb();
-          }
-
-          if (btn.id === 'dash') {
-            activateDash();
-          }
-
-          if (btn.id === 'slow') {
-            activateSlow();
-          }
-
-          continue;
-        }
-
-        if (p.x < W * 0.45 && touchJoy.id === null) {
-          touchJoy.id = touch.identifier;
-          touchJoy.baseX = p.x;
-          touchJoy.baseY = p.y;
-          touchJoy.x = p.x;
-          touchJoy.y = p.y;
-        } else if (p.x >= W * 0.45) {
-          touchFireId = touch.identifier;
-        }
-      }
-    }, { passive: false });
-
-    canvas.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-
-      for (const touch of e.changedTouches) {
-        if (touch.identifier === touchJoy.id) {
-          const p = getTouchPos(touch);
-          touchJoy.x = p.x;
-          touchJoy.y = p.y;
-        }
-      }
-    }, { passive: false });
-
-    canvas.addEventListener('touchend', (e) => {
-      e.preventDefault();
-
-      for (const touch of e.changedTouches) {
-        if (touch.identifier === touchJoy.id) {
-          touchJoy.id = null;
-        }
-
-        if (touch.identifier === touchFireId) {
-          touchFireId = null;
-        }
-      }
-    }, { passive: false });
-
-    canvas.addEventListener('touchcancel', (e) => {
-      e.preventDefault();
-
-      for (const touch of e.changedTouches) {
-        if (touch.identifier === touchJoy.id) {
-          touchJoy.id = null;
-        }
-
-        if (touch.identifier === touchFireId) {
-          touchFireId = null;
-        }
-      }
-    }, { passive: false });
 
     // --- СПОСОБНОСТИ ---
 
@@ -935,7 +907,6 @@
 
       enemyLasers.length = 0;
 
-      // Уничтожаем корабли-щиты
       for (let i = bossShips.length - 1; i >= 0; i--) {
         destroyBossShip(i);
       }
@@ -1129,7 +1100,6 @@
 
       const diff = getDifficulty();
 
-      // УВЕЛИЧЕННЫЕ HP БОССА
       const baseHp =
         bossNumber === 1
           ? 20
@@ -1201,7 +1171,8 @@
 
       score += a.score * combo;
 
-      combo = Math.min(10, combo + 1);
+      // ИСПРАВЛЕН БАГ: максимум комбо теперь 9999
+      combo = Math.min(9999, combo + 1);
       comboTimer = player.comboDuration;
 
       if (combo > maxCombo) maxCombo = combo;
@@ -1611,7 +1582,6 @@
         boss.shieldTimer = 7.0;
         boss.turretTimer = 0;
 
-        // Спавним 2 красных корабля-щита
         bossShips = [
           {
             id: idCounter++,
@@ -1643,6 +1613,57 @@
 
         addParticles(boss.x, boss.y, '#ff3b6b', 30);
         playSound('shieldHit');
+      }
+    }
+
+    // --- РЕЖИМ ОБОРОНЫ ---
+
+    function startDefenseMode() {
+      reset();
+      defenseMode = true;
+      defenseWave = 1;
+      defenseResources = 100;
+      defenseWallHP = 100;
+      
+      // Создаём слоты для турелей
+      defenseTurretSlots = [
+        { x: 150, y: 150, turret: null },
+        { x: 150, y: 270, turret: null },
+        { x: 150, y: 390, turret: null },
+        { x: 250, y: 210, turret: null },
+        { x: 250, y: 330, turret: null }
+      ];
+
+      player.x = 100;
+      player.y = H / 2;
+      
+      gameState = 'playing';
+      spawnDefenseWave();
+    }
+
+    function spawnDefenseWave() {
+      const enemyCount = 3 + defenseWave * 2;
+      
+      for (let i = 0; i < enemyCount; i++) {
+        setTimeout(() => {
+          if (!defenseMode || gameState !== 'playing') return;
+          
+          const type = Math.random() < 0.3 ? 'heavy' : 'scout';
+          
+          defenseEnemies.push({
+            id: idCounter++,
+            type: type,
+            x: W + 50,
+            y: rand(50, H - 50),
+            vx: -80 - defenseWave * 5,
+            vy: rand(-30, 30),
+            hp: type === 'heavy' ? 5 + defenseWave : 2 + defenseWave,
+            maxHp: type === 'heavy' ? 5 + defenseWave : 2 + defenseWave,
+            r: type === 'heavy' ? 25 : 18,
+            shootTimer: rand(1, 3),
+            color: type === 'heavy' ? '#ff6b6b' : '#ffa500'
+          });
+        }, i * 1000);
       }
     }
 
@@ -1724,7 +1745,7 @@
 
       const diff = getDifficulty();
 
-      if (!gameOver && !boss) {
+      if (!gameOver && !boss && !defenseMode) {
         score += diff.scoreRate * dt;
       }
 
@@ -1769,14 +1790,6 @@
       if (keys.ArrowDown || keys.KeyS) my++;
       if (keys.ArrowUp || keys.KeyW) my--;
 
-      if (touchJoy.id !== null) {
-        const dx = touchJoy.x - touchJoy.baseX;
-        const dy = touchJoy.y - touchJoy.baseY;
-
-        mx += clamp(dx / 50, -1, 1);
-        my += clamp(dy / 50, -1, 1);
-      }
-
       if (mx || my) {
         let len = Math.hypot(mx, my);
 
@@ -1812,40 +1825,147 @@
         }
       }
 
-      player.x = clamp(player.x, 25, W - 25);
-      player.y = clamp(player.y, 25, H - 25);
+      if (defenseMode) {
+        player.x = clamp(player.x, 50, 300);
+        player.y = clamp(player.y, 50, H - 50);
+      } else {
+        player.x = clamp(player.x, 25, W - 25);
+        player.y = clamp(player.y, 25, H - 25);
+      }
 
-      if ((keys.Space || touchFireId !== null) && player.cooldown <= 0) {
+      if ((keys.Space) && player.cooldown <= 0) {
         shoot();
       }
 
       updateDrone(dt);
 
-      if (!boss) {
-        spawnTimer -= wdt;
-
-        if (spawnTimer <= 0) {
-          spawnAsteroid();
-
-          if (score > 20000 && Math.random() < 0.25) {
-            spawnAsteroid();
+      // Режим Обороны
+      if (defenseMode) {
+        // Обновление врагов
+        for (let i = defenseEnemies.length - 1; i >= 0; i--) {
+          const enemy = defenseEnemies[i];
+          
+          enemy.x += enemy.vx * dt;
+          enemy.y += enemy.vy * dt;
+          
+          if (enemy.y < 50 || enemy.y > H - 50) enemy.vy *= -1;
+          
+          // Стрельба
+          enemy.shootTimer -= dt;
+          if (enemy.shootTimer <= 0 && enemy.x < W - 100) {
+            enemy.shootTimer = rand(1.5, 3);
+            
+            const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+            enemyLasers.push({
+              x: enemy.x,
+              y: enemy.y,
+              vx: Math.cos(angle) * 200,
+              vy: Math.sin(angle) * 200,
+              r: 4,
+              color: '#ff4444',
+              isMiniMeteor: false
+            });
+            
+            playSound('enemyShoot');
           }
-
-          spawnTimer = Math.max(0.35, 1.2 * diff.spawnMult - score / 200000);
+          
+          // Столкновение со стеной
+          if (enemy.x < 80) {
+            defenseWallHP -= 5;
+            defenseEnemies.splice(i, 1);
+            addParticles(enemy.x, enemy.y, '#ff6b6b', 15);
+            playSound('explosion');
+            
+            if (defenseWallHP <= 0) {
+              gameOver = true;
+              gameState = 'gameover';
+              playSound('playerDeath');
+            }
+          }
         }
-      } else {
-        spawnTimer = 0.5;
+        
+        // Обновление турелей
+        for (const slot of defenseTurretSlots) {
+          if (!slot.turret) continue;
+          
+          const turret = slot.turret;
+          turret.cooldown -= dt;
+          
+          if (turret.cooldown <= 0 && defenseEnemies.length > 0) {
+            // Найти ближайшего врага
+            let target = null;
+            let best = 999999;
+            
+            for (const enemy of defenseEnemies) {
+              const d = Math.hypot(enemy.x - turret.x, enemy.y - turret.y);
+              if (d < best) {
+                best = d;
+                target = enemy;
+              }
+            }
+            
+            if (target) {
+              turret.cooldown = 0.5;
+              
+              const angle = Math.atan2(target.y - turret.y, target.x - turret.x);
+              bullets.push({
+                x: turret.x,
+                y: turret.y,
+                vx: Math.cos(angle) * 500,
+                vy: Math.sin(angle) * 500,
+                r: 3,
+                dmg: 2,
+                color: '#00ffcc',
+                pierce: false,
+                hit: [],
+                hitBoss: false
+              });
+              
+              playSound('shoot');
+            }
+          }
+        }
+        
+        // Проверка конца волны
+        if (defenseEnemies.length === 0 && defenseWave > 0) {
+          defenseWave++;
+          defenseResources += 50;
+          stats.defenseWaves = Math.max(stats.defenseWaves, defenseWave - 1);
+          saveAll();
+          
+          if (defenseWave <= 10) {
+            setTimeout(() => spawnDefenseWave(), 2000);
+          }
+        }
       }
 
-      orbTimer -= dt;
+      if (!defenseMode) {
+        if (!boss) {
+          spawnTimer -= wdt;
 
-      if (orbTimer <= 0) {
-        spawnOrb(W + 30, rand(60, H - 60));
-        orbTimer = rand(5, 9) / diff.orbMult;
-      }
+          if (spawnTimer <= 0) {
+            spawnAsteroid();
 
-      if (!boss && score >= nextBossScore) {
-        spawnBoss();
+            if (score > 20000 && Math.random() < 0.25) {
+              spawnAsteroid();
+            }
+
+            spawnTimer = Math.max(0.35, 1.2 * diff.spawnMult - score / 200000);
+          }
+        } else {
+          spawnTimer = 0.5;
+        }
+
+        orbTimer -= dt;
+
+        if (orbTimer <= 0) {
+          spawnOrb(W + 30, rand(60, H - 60));
+          orbTimer = rand(5, 9) / diff.orbMult;
+        }
+
+        if (!boss && score >= nextBossScore) {
+          spawnBoss();
+        }
       }
 
       for (let i = bullets.length - 1; i >= 0; i--) {
@@ -1862,192 +1982,97 @@
       for (let i = enemyLasers.length - 1; i >= 0; i--) {
         const l = enemyLasers[i];
 
-        if (l.isMiniMeteor && l.state === 'freeze') {
-          l.freezeTimer -= wdt;
-
-          if (l.freezeTimer <= 0) {
-            l.state = 'fly';
-            l.targetX = player.x;
-            l.targetY = player.y;
-
-            const dx = l.targetX - l.x;
-            const dy = l.targetY - l.y;
-            const d = Math.hypot(dx, dy) || 1;
-
-            const speed = 270;
-
-            l.vx = (dx / d) * speed;
-            l.vy = (dy / d) * speed;
-
-            playSound('meteorLaunch');
-          }
-
-          continue;
-        }
-
-        if (l.isMiniMeteor && l.state === 'charging') {
-          l.chargeTimer -= wdt;
-
-          if (l.chargeTimer <= 0) {
-            l.state = 'infinity';
-            l.infPhase = 0;
-          }
-
-          continue;
-        }
-
-        if (l.isMiniMeteor && l.state === 'infinity') {
-          l.life -= wdt;
-          l.infPhase += wdt * 2.5;
-
-          const t = l.infPhase;
-          const sinT = Math.sin(t);
-          const cosT = Math.cos(t);
-          const denom = 1 + sinT * sinT;
-
-          const lx = (l.infScale * cosT) / denom;
-          const ly = (l.infScale * sinT * cosT) / denom;
-
-          l.x = l.infCenterX + lx;
-          l.y = l.infCenterY + ly;
-
-          const dx = player.x - l.infCenterX;
-          const dy = player.y - l.infCenterY;
-          const d = Math.hypot(dx, dy) || 1;
-
-          l.infCenterX += (dx / d) * 30 * wdt;
-          l.infCenterY += (dy / d) * 30 * wdt;
-
-          if (l.life <= 0) {
-            if (boss) boss.miniMeteorsAlive--;
-            enemyLasers.splice(i, 1);
-          }
-
-          continue;
-        }
-
-        if (l.isMiniMeteor && l.state === 'fly') {
-          l.life -= wdt;
-
-          const dx = player.x - l.x;
-          const dy = player.y - l.y;
-          const d = Math.hypot(dx, dy) || 1;
-
-          const accel = 110;
-
-          l.vx += (dx / d) * accel * wdt;
-          l.vy += (dy / d) * accel * wdt;
-
-          const sp = Math.hypot(l.vx, l.vy);
-          const maxSp = 340;
-
-          if (sp > maxSp) {
-            l.vx *= maxSp / sp;
-            l.vy *= maxSp / sp;
-          }
-        }
-
         l.x += l.vx * wdt;
         l.y += l.vy * wdt;
 
-        const outside =
-          l.x < -170 ||
-          l.x > W + 170 ||
-          l.y < -170 ||
-          l.y > H + 170;
-
-        const expired =
-          l.isMiniMeteor &&
-          l.state === 'fly' &&
-          l.life <= 0;
-
-        if (outside || expired) {
-          if (l.isMiniMeteor && boss) boss.miniMeteorsAlive--;
+        if (l.x < -170 || l.x > W + 170 || l.y < -170 || l.y > H + 170) {
           enemyLasers.splice(i, 1);
         }
       }
 
-      for (let i = asteroids.length - 1; i >= 0; i--) {
-        const a = asteroids[i];
+      if (!defenseMode) {
+        for (let i = asteroids.length - 1; i >= 0; i--) {
+          const a = asteroids[i];
 
-        if (a.type === 'purple' && a.homingTimer > 0) {
-          a.homingTimer -= wdt;
+          if (a.type === 'purple' && a.homingTimer > 0) {
+            a.homingTimer -= wdt;
 
-          const dx = player.x - a.x;
-          const dy = player.y - a.y;
-          const d = Math.hypot(dx, dy) || 1;
+            const dx = player.x - a.x;
+            const dy = player.y - a.y;
+            const d = Math.hypot(dx, dy) || 1;
 
-          a.vx += (dx / d) * 300 * wdt;
-          a.vy += (dy / d) * 300 * wdt;
+            a.vx += (dx / d) * 300 * wdt;
+            a.vy += (dy / d) * 300 * wdt;
 
-          const sp = Math.hypot(a.vx, a.vy);
-          const maxSp = 220 * diff.speedMult;
+            const sp = Math.hypot(a.vx, a.vy);
+            const maxSp = 220 * diff.speedMult;
 
-          if (sp > maxSp) {
-            a.vx *= maxSp / sp;
-            a.vy *= maxSp / sp;
+            if (sp > maxSp) {
+              a.vx *= maxSp / sp;
+              a.vy *= maxSp / sp;
+            }
           }
-        }
 
-        if (a.type === 'yellow') {
-          a.zigTimer -= wdt;
+          if (a.type === 'yellow') {
+            a.zigTimer -= wdt;
 
-          if (a.zigTimer <= 0) {
-            a.vy = -a.vy + rand(-50, 50);
-            a.vy = clamp(a.vy, -220, 220);
-            a.zigTimer = 0.4;
+            if (a.zigTimer <= 0) {
+              a.vy = -a.vy + rand(-50, 50);
+              a.vy = clamp(a.vy, -220, 220);
+              a.zigTimer = 0.4;
+            }
           }
-        }
 
-        a.x += a.vx * wdt;
-        a.y += a.vy * wdt;
+          a.x += a.vx * wdt;
+          a.y += a.vy * wdt;
 
-        if (a.y < a.r + 2 || a.y > H - a.r - 2) {
-          a.vy *= -1;
-        }
-
-        if (a.type === 'orange') {
-          a.shootTimer -= wdt;
-
-          if (a.shootTimer <= 0 && a.x < W + 20 && a.x > player.x + 50) {
-            a.shootTimer = rand(1.3, 2.2);
-
-            enemyLasers.push({
-              x: a.x,
-              y: a.y,
-              vx: -280,
-              vy: 0,
-              r: 5,
-              color: '#ff5030',
-              isMiniMeteor: false
-            });
-
-            enemyLasers.push({
-              x: a.x,
-              y: a.y,
-              vx: -170,
-              vy: 180,
-              r: 4,
-              color: '#ff8c30',
-              isMiniMeteor: false
-            });
-
-            enemyLasers.push({
-              x: a.x,
-              y: a.y,
-              vx: -170,
-              vy: -180,
-              r: 4,
-              color: '#ff8c30',
-              isMiniMeteor: false
-            });
-
-            playSound('enemyShoot');
+          if (a.y < a.r + 2 || a.y > H - a.r - 2) {
+            a.vy *= -1;
           }
-        }
 
-        if (a.x < -110 || a.x > W + 150) {
-          asteroids.splice(i, 1);
+          if (a.type === 'orange') {
+            a.shootTimer -= wdt;
+
+            if (a.shootTimer <= 0 && a.x < W + 20 && a.x > player.x + 50) {
+              a.shootTimer = rand(1.3, 2.2);
+
+              enemyLasers.push({
+                x: a.x,
+                y: a.y,
+                vx: -280,
+                vy: 0,
+                r: 5,
+                color: '#ff5030',
+                isMiniMeteor: false
+              });
+
+              enemyLasers.push({
+                x: a.x,
+                y: a.y,
+                vx: -170,
+                vy: 180,
+                r: 4,
+                color: '#ff8c30',
+                isMiniMeteor: false
+              });
+
+              enemyLasers.push({
+                x: a.x,
+                y: a.y,
+                vx: -170,
+                vy: -180,
+                r: 4,
+                color: '#ff8c30',
+                isMiniMeteor: false
+              });
+
+              playSound('enemyShoot');
+            }
+          }
+
+          if (a.x < -110 || a.x > W + 150) {
+            asteroids.splice(i, 1);
+          }
         }
       }
 
@@ -2076,18 +2101,15 @@
         }
       }
 
-      // Обновление кораблей-щитов босса
       for (let i = bossShips.length - 1; i >= 0; i--) {
         const ship = bossShips[i];
 
         if (boss.state === 'siege') {
-          // Корабли вращаются вокруг босса
           ship.orbitAngle += wdt * 1.5;
           ship.x = boss.x + Math.cos(ship.orbitAngle) * 80;
           ship.y = boss.y + Math.sin(ship.orbitAngle) * 80;
           ship.angle = Math.atan2(player.y - ship.y, player.x - ship.x);
         } else {
-          // Щит разрушен - корабли летают хаотично
           ship.vulnerable = true;
           ship.vx += rand(-50, 50) * wdt;
           ship.vy += rand(-50, 50) * wdt;
@@ -2102,7 +2124,6 @@
           ship.y += ship.vy * wdt;
           ship.angle += wdt * 3;
 
-          // Ограничиваем движение
           if (ship.x < W - 200 || ship.x > W - 50) ship.vx *= -1;
           if (ship.y < 50 || ship.y > H - 50) ship.vy *= -1;
         }
@@ -2150,7 +2171,6 @@
             boss.state = 'fight';
             boss.shieldTimer = 0;
 
-            // Корабли становятся уязвимыми
             for (const ship of bossShips) {
               ship.vulnerable = true;
             }
@@ -2231,7 +2251,34 @@
         const b = bullets[i];
         let removed = false;
 
-        // Проверка попадания в корабли-щиты
+        // Столкновение с врагами в режиме Обороны
+        if (defenseMode) {
+          for (let j = defenseEnemies.length - 1; j >= 0; j--) {
+            const enemy = defenseEnemies[j];
+            
+            if (dist(b, enemy) < b.r + enemy.r) {
+              enemy.hp -= b.dmg;
+              addParticles(b.x, b.y, enemy.color, 5);
+              
+              if (!b.pierce) {
+                bullets.splice(i, 1);
+                removed = true;
+              }
+              
+              if (enemy.hp <= 0) {
+                defenseResources += 10;
+                addParticles(enemy.x, enemy.y, enemy.color, 20);
+                defenseEnemies.splice(j, 1);
+                playSound('explosion');
+              }
+              
+              if (removed) break;
+            }
+          }
+          
+          if (removed) continue;
+        }
+
         for (let j = bossShips.length - 1; j >= 0; j--) {
           const ship = bossShips[j];
 
@@ -2257,7 +2304,6 @@
         if (removed) continue;
 
         if (boss && dist(b, boss) < b.r + boss.r) {
-          // Не попадаем в босса, если есть активные щиты
           if (boss.state === 'siege' && bossShips.length > 0) {
             continue;
           }
@@ -2309,21 +2355,20 @@
       for (let i = enemyLasers.length - 1; i >= 0; i--) {
         const l = enemyLasers[i];
 
-        if (l.isMiniMeteor && l.state === 'freeze') continue;
-
         if (dist(l, player) < l.r + player.r) {
-          if (l.isMiniMeteor && boss) boss.miniMeteorsAlive--;
           enemyLasers.splice(i, 1);
           hitPlayer();
         }
       }
 
-      for (let i = asteroids.length - 1; i >= 0; i--) {
-        const a = asteroids[i];
+      if (!defenseMode) {
+        for (let i = asteroids.length - 1; i >= 0; i--) {
+          const a = asteroids[i];
 
-        if (dist(a, player) < a.r + player.r) {
-          destroyAsteroid(i);
-          hitPlayer();
+          if (dist(a, player) < a.r + player.r) {
+            destroyAsteroid(i);
+            hitPlayer();
+          }
         }
       }
 
@@ -2340,7 +2385,6 @@
         hitPlayer();
       }
 
-      // Столкновение с кораблями-щитами
       for (let i = bossShips.length - 1; i >= 0; i--) {
         const ship = bossShips[i];
 
@@ -2378,20 +2422,22 @@
         gameState === 'upgrade'
       ) {
         drawStars();
-        drawOrbs();
-        drawAsteroids();
-        drawBossShips();
-        drawBoss();
+        
+        if (defenseMode) {
+          drawDefenseMode();
+        } else {
+          drawOrbs();
+          drawAsteroids();
+          drawBossShips();
+          drawBoss();
+        }
+        
         drawBullets();
         drawEnemyLasers();
         drawDrone();
         drawPlayer();
         drawParticles();
         drawUI();
-
-        if (isTouchDevice && gameState === 'playing' && !gameOver) {
-          drawTouchControls();
-        }
 
         if (gameOver) {
           drawGameOver();
@@ -2403,6 +2449,66 @@
       }
 
       ctx.restore();
+    }
+
+    function drawDefenseMode() {
+      // Стена
+      ctx.fillStyle = '#34495e';
+      ctx.fillRect(0, 0, 60, H);
+      
+      // Полоска HP стены
+      const wallHPWidth = 50;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(5, 10, wallHPWidth, 10);
+      ctx.fillStyle = defenseWallHP > 30 ? '#2ecc71' : '#e74c3c';
+      ctx.fillRect(5, 10, wallHPWidth * (defenseWallHP / 100), 10);
+      
+      // Слоты для турелей
+      for (const slot of defenseTurretSlots) {
+        ctx.strokeStyle = slot.turret ? '#2ecc71' : '#7f8c8d';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(slot.x, slot.y, 25, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        if (slot.turret) {
+          ctx.fillStyle = '#00ffcc';
+          ctx.beginPath();
+          ctx.arc(slot.x, slot.y, 15, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      
+      // Враги
+      for (const enemy of defenseEnemies) {
+        ctx.save();
+        ctx.translate(enemy.x, enemy.y);
+        
+        ctx.fillStyle = enemy.color;
+        ctx.shadowColor = enemy.color;
+        ctx.shadowBlur = 10;
+        
+        ctx.beginPath();
+        ctx.moveTo(enemy.r, 0);
+        ctx.lineTo(-enemy.r * 0.7, -enemy.r * 0.6);
+        ctx.lineTo(-enemy.r * 0.4, 0);
+        ctx.lineTo(-enemy.r * 0.7, enemy.r * 0.6);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Полоска HP
+        ctx.shadowBlur = 0;
+        const barWidth = enemy.r * 2;
+        const barHeight = 3;
+        const pct = enemy.hp / enemy.maxHp;
+        
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(-barWidth / 2, -enemy.r - 8, barWidth, barHeight);
+        ctx.fillStyle = '#ff3b6b';
+        ctx.fillRect(-barWidth / 2, -enemy.r - 8, barWidth * pct, barHeight);
+        
+        ctx.restore();
+      }
     }
 
     function drawStars() {
@@ -2610,7 +2716,6 @@
         ctx.translate(ship.x, ship.y);
         ctx.rotate(ship.angle);
 
-        // Красный корабль-щит
         ctx.fillStyle = ship.vulnerable ? '#ff6b6b' : '#ff3b6b';
         ctx.shadowColor = '#ff3b6b';
         ctx.shadowBlur = ship.vulnerable ? 5 : 15;
@@ -2627,7 +2732,6 @@
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Полоска HP если уязвим
         if (ship.vulnerable) {
           ctx.rotate(-ship.angle);
           const barWidth = ship.r * 2;
@@ -2668,7 +2772,6 @@
         ctx.shadowBlur = 25;
       }
 
-      // Турель в режиме осады
       if (boss.state === 'siege') {
         const angle = Math.atan2(player.y - boss.y, player.x - boss.x);
         ctx.save();
@@ -2686,7 +2789,6 @@
         ctx.shadowBlur = 0;
       }
 
-      // Тело босса
       ctx.fillStyle = c.bg;
 
       ctx.beginPath();
@@ -2744,59 +2846,18 @@
       ctx.globalCompositeOperation = 'lighter';
 
       for (const l of enemyLasers) {
-        if (l.isMiniMeteor) {
-          if (l.state === 'freeze') {
-            ctx.save();
+        ctx.save();
+        ctx.translate(l.x, l.y);
 
-            ctx.strokeStyle = 'rgba(255,120,190,0.55)';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([6, 6]);
+        ctx.rotate(Math.atan2(l.vy, l.vx));
 
-            ctx.beginPath();
-            ctx.moveTo(l.x, l.y);
-            ctx.lineTo(player.x, player.y);
-            ctx.stroke();
+        ctx.fillStyle = l.color;
+        ctx.shadowColor = l.color;
+        ctx.shadowBlur = 10;
 
-            ctx.restore();
-          }
+        ctx.fillRect(-12, -2, 24, 4);
 
-          ctx.save();
-          ctx.translate(l.x, l.y);
-
-          const pulse = l.state === 'freeze' ? 1 + Math.sin(time * 25) * 0.12 : (l.state === 'charging' ? (Math.sin(time * 15) > 0 ? 1.2 : 0.4) : 1);
-
-          ctx.globalAlpha = l.state === 'charging' ? (Math.sin(time * 15) > 0 ? 1.0 : 0.3) : 1.0;
-
-          ctx.fillStyle = l.color;
-          ctx.shadowColor = l.color;
-          ctx.shadowBlur = 16;
-
-          ctx.beginPath();
-          ctx.arc(0, 0, l.r * pulse, 0, Math.PI * 2);
-          ctx.fill();
-
-          ctx.fillStyle = '#e8d5ff';
-
-          ctx.beginPath();
-          ctx.arc(0, 0, l.r * 0.45 * pulse, 0, Math.PI * 2);
-          ctx.fill();
-
-          ctx.restore();
-          ctx.globalAlpha = 1.0;
-        } else {
-          ctx.save();
-          ctx.translate(l.x, l.y);
-
-          ctx.rotate(Math.atan2(l.vy, l.vx));
-
-          ctx.fillStyle = l.color;
-          ctx.shadowColor = l.color;
-          ctx.shadowBlur = 10;
-
-          ctx.fillRect(-12, -2, 24, 4);
-
-          ctx.restore();
-        }
+        ctx.restore();
       }
 
       ctx.restore();
@@ -2815,20 +2876,17 @@
         ctx.shadowColor = st.color;
         ctx.shadowBlur = 15;
 
-        // Фон орба
         ctx.fillStyle = 'rgba(7,10,18,0.85)';
         ctx.beginPath();
         ctx.arc(0, 0, o.r, 0, Math.PI * 2);
         ctx.fill();
 
-        // Обводка
         ctx.strokeStyle = st.color;
         ctx.lineWidth = 3;
         ctx.stroke();
 
         ctx.shadowBlur = 0;
 
-        // Иконка
         ctx.font = '16px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -2866,7 +2924,10 @@
 
       ctx.font = '18px monospace';
 
-      if (boss) {
+      if (defenseMode) {
+        ctx.fillText(`Волна: ${defenseWave}`, 14, 28);
+        ctx.fillText(`Ресурсы: ${defenseResources}`, 14, 52);
+      } else if (boss) {
         ctx.fillText(`Счёт: ${Math.floor(score)} (БОСС!)`, 14, 28);
       } else {
         ctx.fillText(`Счёт: ${Math.floor(score)}`, 14, 28);
@@ -3010,8 +3071,6 @@
       ctx.textAlign = 'left';
     }
 
-    // --- МЕНЮ / НАСТРОЙКИ / РЕКОРДЫ / МАГАЗИН / ПОМОЩЬ / УЛУЧШЕНИЯ ---
-
     function drawButton(text, x, y, w, h) {
       const hover = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
 
@@ -3078,23 +3137,28 @@
 
       ctx.textAlign = 'left';
 
-      if (drawButton('ИГРАТЬ', W / 2 - 100, 200, 200, 50)) {
+      if (drawButton('ИГРАТЬ', W / 2 - 100, 180, 200, 45)) {
         reset();
         gameState = 'playing';
         playSound('click');
       }
 
-      if (drawButton('МАГАЗИН', W / 2 - 100, 270, 200, 50)) {
+      if (drawButton('ОБОРОНА', W / 2 - 100, 235, 200, 45)) {
+        startDefenseMode();
+        playSound('click');
+      }
+
+      if (drawButton('МАГАЗИН', W / 2 - 100, 290, 200, 45)) {
         gameState = 'shop';
         playSound('click');
       }
 
-      if (drawButton('НАСТРОЙКИ', W / 2 - 100, 340, 200, 50)) {
+      if (drawButton('НАСТРОЙКИ', W / 2 - 100, 345, 200, 45)) {
         gameState = 'settings';
         playSound('click');
       }
 
-      if (drawButton('РЕКОРДЫ', W / 2 - 100, 410, 200, 50)) {
+      if (drawButton('РЕКОРДЫ', W / 2 - 100, 400, 200, 45)) {
         gameState = 'records';
         playSound('click');
       }
@@ -3256,13 +3320,12 @@
         'Esc — меню',
         'R — рестарт после смерти',
         '',
-        'На телефоне:',
-        'Левая половина экрана — джойстик',
-        'Справа кнопки: огонь, бомба, рывок, время'
+        'Режим Обороны:',
+        'Кликай по слотам чтобы строить турели (50 ресурсов)'
       ];
 
       lines.forEach((line, i) => {
-        ctx.fillText(line, W / 2 - 320, 120 + i * 30);
+        ctx.fillText(line, W / 2 - 320, 120 + i * 28);
       });
 
       if (drawButton('НАЗАД', W / 2 - 100, 470, 200, 50)) {
@@ -3289,11 +3352,12 @@
         `Всего времени в игре: ${formatTime(stats.totalTime)}`,
         `Всего заработано монет: ${stats.totalCoins}`,
         `Текущие монеты: ${wallet.coins}`,
-        `Всего забегов: ${stats.runs}`
+        `Всего забегов: ${stats.runs}`,
+        `Макс. волна в Обороне: ${stats.defenseWaves}`
       ];
 
       lines.forEach((line, i) => {
-        ctx.fillText(line, W / 2 - 280, 130 + i * 38);
+        ctx.fillText(line, W / 2 - 280, 120 + i * 36);
       });
 
       if (drawButton('НАЗАД', W / 2 - 100, 470, 200, 50)) {
@@ -3505,57 +3569,6 @@
         }
       }
     }
-
-    function drawTouchControls() {
-      if (touchJoy.id !== null) {
-        ctx.save();
-
-        ctx.globalAlpha = 0.25;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 3;
-
-        ctx.beginPath();
-        ctx.arc(touchJoy.baseX, touchJoy.baseY, 55, 0, Math.PI * 2);
-        ctx.stroke();
-
-        const dx = clamp(touchJoy.x - touchJoy.baseX, -45, 45);
-        const dy = clamp(touchJoy.y - touchJoy.baseY, -45, 45);
-
-        ctx.fillStyle = '#ffffff';
-
-        ctx.beginPath();
-        ctx.arc(touchJoy.baseX + dx, touchJoy.baseY + dy, 18, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.restore();
-      }
-
-      for (const b of touchButtons) {
-        ctx.save();
-
-        ctx.globalAlpha = 0.22;
-
-        ctx.fillStyle = '#ffffff';
-
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.globalAlpha = 0.75;
-        ctx.fillStyle = '#04060f';
-        ctx.font = `${b.id === 'fire' ? 16 : 10}px monospace`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
-        ctx.fillText(b.label, b.x, b.y);
-
-        ctx.restore();
-      }
-
-      ctx.textBaseline = 'alphabetic';
-    }
-
-    // --- ГЛАВНЫЙ ЦИКЛ ---
 
     let last = performance.now();
 
