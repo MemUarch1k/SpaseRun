@@ -510,6 +510,10 @@
           playTone({ freq: 200, endFreq: 50, duration: 0.4, type: 'sawtooth', volume: 0.4, category: 'explosion' });
           break;
 
+        case 'mine':
+          playTone({ freq: 300, endFreq: 600, duration: 0.1, type: 'triangle', volume: 0.3, category: 'ui' });
+          break;
+
         default:
           break;
       }
@@ -520,7 +524,6 @@
     function startMusic() {
       if (musicNodes.length > 0 || !musicEnabled || !audioCtx) return;
 
-      // Басовая линия
       const bassPattern = [55, 55, 73.42, 65.41, 55, 55, 82.41, 73.42];
       let bassIndex = 0;
 
@@ -533,7 +536,6 @@
       bassOsc.start();
       musicNodes.push(bassOsc);
 
-      // Аккорды
       const chordPattern = [
         [220, 277.18, 329.63],
         [196, 246.94, 293.66],
@@ -542,18 +544,15 @@
       ];
       let chordIndex = 0;
 
-      // Мелодия
       const melodyPattern = [440, 523.25, 587.33, 659.25, 523.25, 440, 392, 440];
       let melodyIndex = 0;
 
-      // Обновление басовой линии
       setInterval(() => {
         if (!musicEnabled) return;
         bassOsc.frequency.setValueAtTime(bassPattern[bassIndex % bassPattern.length], audioCtx.currentTime);
         bassIndex++;
       }, 500);
 
-      // Обновление аккордов
       setInterval(() => {
         if (!musicEnabled) return;
         const chord = chordPattern[chordIndex % chordPattern.length];
@@ -573,7 +572,6 @@
         chordIndex++;
       }, 2000);
 
-      // Обновление мелодии
       setInterval(() => {
         if (!musicEnabled) return;
         const freq = melodyPattern[melodyIndex % melodyPattern.length];
@@ -620,6 +618,8 @@
     let defenseResources = 0;
     let defenseWallHP = 100;
     let defenseTurretSlots = [];
+    let defenseMine = null;
+    let defenseWallLasers = [];
 
     let score;
     let time;
@@ -744,6 +744,8 @@
       defenseWave = 0;
       defenseResources = 0;
       defenseWallHP = 100;
+      defenseMine = null;
+      defenseWallLasers = [];
 
       resetRunStats();
     }
@@ -833,17 +835,14 @@
       ensureAudio();
       clicked = true;
 
-      // Обработка кликов в режиме Обороны
       if (defenseMode && gameState === 'playing') {
         const rect = canvas.getBoundingClientRect();
         const clickX = (e.clientX - rect.left) * (W / rect.width);
         const clickY = (e.clientY - rect.top) * (H / rect.height);
 
-        // Проверка клика по слотам турелей
         for (let i = 0; i < defenseTurretSlots.length; i++) {
           const slot = defenseTurretSlots[i];
           if (Math.hypot(clickX - slot.x, clickY - slot.y) < 30) {
-            // Построить турель если слот пустой
             if (!slot.turret && defenseResources >= 50) {
               defenseResources -= 50;
               slot.turret = {
@@ -1171,7 +1170,6 @@
 
       score += a.score * combo;
 
-      // ИСПРАВЛЕН БАГ: максимум комбо теперь 9999
       combo = Math.min(9999, combo + 1);
       comboTimer = player.comboDuration;
 
@@ -1625,6 +1623,25 @@
       defenseResources = 100;
       defenseWallHP = 100;
       
+      // Создаём шахту (астероид, который стоит на месте)
+      defenseMine = {
+        x: 200,
+        y: H / 2,
+        r: 35,
+        hp: 100,
+        maxHp: 100,
+        phase: 0,
+        baseY: H / 2
+      };
+      
+      // Создаём лазерную стену (3-4 луча перед игроком)
+      defenseWallLasers = [
+        { y: H / 2 - 80, active: true },
+        { y: H / 2 - 30, active: true },
+        { y: H / 2 + 20, active: true },
+        { y: H / 2 + 70, active: true }
+      ];
+      
       // Создаём слоты для турелей
       defenseTurretSlots = [
         { x: 150, y: 150, turret: null },
@@ -1650,20 +1667,23 @@
           
           const type = Math.random() < 0.3 ? 'heavy' : 'scout';
           
+          // ЗАМЕДЛЕННЫЕ враги
+          const speed = type === 'heavy' ? 30 + defenseWave * 2 : 40 + defenseWave * 2;
+          
           defenseEnemies.push({
             id: idCounter++,
             type: type,
             x: W + 50,
-            y: rand(50, H - 50),
-            vx: -80 - defenseWave * 5,
-            vy: rand(-30, 30),
+            y: rand(80, H - 80),
+            vx: -speed, // Медленная скорость
+            vy: rand(-15, 15),
             hp: type === 'heavy' ? 5 + defenseWave : 2 + defenseWave,
             maxHp: type === 'heavy' ? 5 + defenseWave : 2 + defenseWave,
             r: type === 'heavy' ? 25 : 18,
-            shootTimer: rand(1, 3),
+            shootTimer: rand(2, 4), // Реже стреляют
             color: type === 'heavy' ? '#ff6b6b' : '#ffa500'
           });
-        }, i * 1000);
+        }, i * 2000); // БОЛЬШЕ задержка между спавном (2 секунды)
       }
     }
 
@@ -1826,7 +1846,7 @@
       }
 
       if (defenseMode) {
-        player.x = clamp(player.x, 50, 300);
+        player.x = clamp(player.x, 50, 350);
         player.y = clamp(player.y, 50, H - 50);
       } else {
         player.x = clamp(player.x, 25, W - 25);
@@ -1841,6 +1861,12 @@
 
       // Режим Обороны
       if (defenseMode) {
+        // Обновление шахты
+        if (defenseMine) {
+          defenseMine.phase += dt;
+          defenseMine.y = defenseMine.baseY + Math.sin(defenseMine.phase * 2) * 10;
+        }
+        
         // Обновление врагов
         for (let i = defenseEnemies.length - 1; i >= 0; i--) {
           const enemy = defenseEnemies[i];
@@ -1853,14 +1879,14 @@
           // Стрельба
           enemy.shootTimer -= dt;
           if (enemy.shootTimer <= 0 && enemy.x < W - 100) {
-            enemy.shootTimer = rand(1.5, 3);
+            enemy.shootTimer = rand(2.5, 4);
             
             const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
             enemyLasers.push({
               x: enemy.x,
               y: enemy.y,
-              vx: Math.cos(angle) * 200,
-              vy: Math.sin(angle) * 200,
+              vx: Math.cos(angle) * 150,
+              vy: Math.sin(angle) * 150,
               r: 4,
               color: '#ff4444',
               isMiniMeteor: false
@@ -1869,18 +1895,31 @@
             playSound('enemyShoot');
           }
           
-          // Столкновение со стеной
-          if (enemy.x < 80) {
-            defenseWallHP -= 5;
-            defenseEnemies.splice(i, 1);
-            addParticles(enemy.x, enemy.y, '#ff6b6b', 15);
-            playSound('explosion');
-            
-            if (defenseWallHP <= 0) {
-              gameOver = true;
-              gameState = 'gameover';
-              playSound('playerDeath');
+          // Проверка столкновения с лазерной стеной
+          const wallX = 320; // Позиция стены
+          if (enemy.x < wallX + 20 && enemy.x > wallX - 20) {
+            let hitWall = false;
+            for (const laser of defenseWallLasers) {
+              if (laser.active && Math.abs(enemy.y - laser.y) < 30) {
+                hitWall = true;
+                break;
+              }
             }
+            
+            if (hitWall) {
+              defenseEnemies.splice(i, 1);
+              addParticles(enemy.x, enemy.y, enemy.color, 15);
+              playSound('explosion');
+              continue;
+            }
+          }
+          
+          // Столкновение с игроком
+          if (dist(enemy, player) < enemy.r + player.r) {
+            defenseEnemies.splice(i, 1);
+            hitPlayer();
+            addParticles(enemy.x, enemy.y, enemy.color, 15);
+            playSound('explosion');
           }
         }
         
@@ -1892,7 +1931,6 @@
           turret.cooldown -= dt;
           
           if (turret.cooldown <= 0 && defenseEnemies.length > 0) {
-            // Найти ближайшего врага
             let target = null;
             let best = 999999;
             
@@ -1934,7 +1972,7 @@
           saveAll();
           
           if (defenseWave <= 10) {
-            setTimeout(() => spawnDefenseWave(), 2000);
+            setTimeout(() => spawnDefenseWave(), 3000);
           }
         }
       }
@@ -2276,6 +2314,26 @@
             }
           }
           
+          // Столкновение с шахтой
+          if (defenseMine && dist(b, defenseMine) < b.r + defenseMine.r) {
+            defenseMine.hp -= b.dmg;
+            addParticles(b.x, b.y, '#95a5a6', 3);
+            
+            if (!b.pierce) {
+              bullets.splice(i, 1);
+              removed = true;
+            }
+            
+            if (defenseMine.hp <= 0) {
+              defenseResources += 50;
+              defenseMine.hp = defenseMine.maxHp;
+              addParticles(defenseMine.x, defenseMine.y, '#f1c40f', 30);
+              playSound('mine');
+            }
+            
+            if (removed) continue;
+          }
+          
           if (removed) continue;
         }
 
@@ -2452,16 +2510,54 @@
     }
 
     function drawDefenseMode() {
-      // Стена
-      ctx.fillStyle = '#34495e';
-      ctx.fillRect(0, 0, 60, H);
+      // Шахта (астероид, который стоит на месте)
+      if (defenseMine) {
+        ctx.save();
+        ctx.translate(defenseMine.x, defenseMine.y);
+        
+        ctx.fillStyle = '#95a5a6';
+        ctx.strokeStyle = '#7f8c8d';
+        ctx.lineWidth = 3;
+        
+        ctx.beginPath();
+        ctx.arc(0, 0, defenseMine.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        
+        // Полоска HP
+        ctx.shadowBlur = 0;
+        const barWidth = defenseMine.r * 2;
+        const barHeight = 5;
+        const pct = defenseMine.hp / defenseMine.maxHp;
+        
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(-barWidth / 2, -defenseMine.r - 12, barWidth, barHeight);
+        ctx.fillStyle = '#f1c40f';
+        ctx.fillRect(-barWidth / 2, -defenseMine.r - 12, barWidth * pct, barHeight);
+        
+        ctx.restore();
+      }
       
-      // Полоска HP стены
-      const wallHPWidth = 50;
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(5, 10, wallHPWidth, 10);
-      ctx.fillStyle = defenseWallHP > 30 ? '#2ecc71' : '#e74c3c';
-      ctx.fillRect(5, 10, wallHPWidth * (defenseWallHP / 100), 10);
+      // Лазерная стена
+      const wallX = 320;
+      for (const laser of defenseWallLasers) {
+        if (!laser.active) continue;
+        
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        
+        ctx.strokeStyle = '#00ffcc';
+        ctx.shadowColor = '#00ffcc';
+        ctx.shadowBlur = 15;
+        ctx.lineWidth = 3;
+        
+        ctx.beginPath();
+        ctx.moveTo(wallX - 50, laser.y);
+        ctx.lineTo(wallX + 50, laser.y);
+        ctx.stroke();
+        
+        ctx.restore();
+      }
       
       // Слоты для турелей
       for (const slot of defenseTurretSlots) {
@@ -2473,9 +2569,12 @@
         
         if (slot.turret) {
           ctx.fillStyle = '#00ffcc';
+          ctx.shadowColor = '#00ffcc';
+          ctx.shadowBlur = 10;
           ctx.beginPath();
           ctx.arc(slot.x, slot.y, 15, 0, Math.PI * 2);
           ctx.fill();
+          ctx.shadowBlur = 0;
         }
       }
       
@@ -2496,7 +2595,6 @@
         ctx.closePath();
         ctx.fill();
         
-        // Полоска HP
         ctx.shadowBlur = 0;
         const barWidth = enemy.r * 2;
         const barHeight = 3;
@@ -3321,11 +3419,13 @@
         'R — рестарт после смерти',
         '',
         'Режим Обороны:',
-        'Кликай по слотам чтобы строить турели (50 ресурсов)'
+        'Стреляй по шахте чтобы добывать ресурсы',
+        'Кликай по слотам чтобы строить турели (50 ресурсов)',
+        'Лазерная стена защищает от врагов'
       ];
 
       lines.forEach((line, i) => {
-        ctx.fillText(line, W / 2 - 320, 120 + i * 28);
+        ctx.fillText(line, W / 2 - 320, 120 + i * 26);
       });
 
       if (drawButton('НАЗАД', W / 2 - 100, 470, 200, 50)) {
